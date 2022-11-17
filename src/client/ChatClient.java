@@ -3,6 +3,7 @@ package client;
 // Logging Imports
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
@@ -13,6 +14,9 @@ import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 
 // Custom Imports
 import gui.ClientGUI;
@@ -78,15 +82,38 @@ public class ChatClient implements ClientInterface {
     // ======================================
 
     public Response registerUser(String user, String pw) throws RemoteException {
-        ClientInterface clientStub = (ClientInterface)UnicastRemoteObject.exportObject(this, 0);
-        remoteReg.rebind(String.format("client:%s", user), clientStub);
-        return this.chatStub.registerUser(user, pw);
+        Response serverResp = this.chatStub.registerUser(user, pw);
+
+        if (serverResp.getServerReply().equals("success")) {
+            ClientInterface clientStub = (ClientInterface)UnicastRemoteObject.exportObject(this, 0);
+            remoteReg.rebind(String.format("client:%s", user), clientStub);
+        }
+        
+        return serverResp;
     }
 
     public Response loginUser(String user, String pw) throws RemoteException {
-        ClientInterface clientStub = (ClientInterface)UnicastRemoteObject.exportObject(this, 0);
-        remoteReg.rebind(String.format("client:%s", user), clientStub);
-        return this.chatStub.loginUser(user, pw);
+        Response serverResp = this.chatStub.loginUser(user, pw);
+
+        if (serverResp.getServerReply().equals("success")) {
+            ClientInterface clientStub = (ClientInterface)UnicastRemoteObject.exportObject(this, 0);
+            remoteReg.rebind(String.format("client:%s", user), clientStub);
+        }
+        return serverResp;
+    }
+
+    // ======================================
+
+    //        Get Server Information
+
+    // ======================================
+
+    /**
+     * Call server's remote method to get the currently active rooms and the number of users in them
+     * @return
+     */
+    public Map<String, Integer> getChatRoomInformation() throws RemoteException {
+        return this.chatStub.getChatRoomInformation();
     }
 
     // ======================================
@@ -95,16 +122,36 @@ public class ChatClient implements ClientInterface {
 
     // ======================================
 
+    /**
+     * Allow a user to create a chatroom
+     * @param chatname The chatroom name
+     * @param user The user attempting to create the chatroom
+     * @return String signifying the success or failure
+     * @throws RemoteException
+     */
     public String createChatRoom(String chatname, String user) throws RemoteException {
         return this.chatStub.createChatRoom(chatname, user);
     }
 
+    /**
+     * Allow a user to join the specified chatroom
+     * @param chatname The chatroom name
+     * @param user The user
+     * @return String signifying success or failure
+     * @throws RemoteException
+     */
     public String joinChatRoom(String chatname, String user) throws RemoteException {
         return this.chatStub.joinChatRoom(chatname, user);
     }
 
-    public void sendMessage(String chatRoom, String message) throws RemoteException {
-        this.chatStub.broadCastMessage("test", message);
+    /**
+     * Call the server's broadcast message to send the message to all room participants
+     * @param chatRoom The current chatroom the user is in
+     * @param message The message to send
+     * @throws RemoteException
+     */
+    public void sendMessage(Instant timeStamp, String user,String chatRoom, String message) throws RemoteException {
+        this.chatStub.broadCastMessage(timeStamp, user, chatRoom, message);
     }
 
 
@@ -114,8 +161,16 @@ public class ChatClient implements ClientInterface {
 
     // ======================================
 
-    public void displayMessage(String message) {
+    public void displayMessage(Instant timeStamp, String sender, String message) {
+        this.theGUI.displayNewMessage(timeStamp, sender, message);
         LOGGER.info(message);
+    }
+
+    public void displayUserJoinLeave(Instant timeStamp, String user, String action) {
+        this.theGUI.displayNewMessage(timeStamp, user,
+            // Either joined or left
+            String.format("has %s the chat.", action));
+        LOGGER.info(String.format("%s has %s the chat.", user, action));
     }
 
 
@@ -127,10 +182,6 @@ public class ChatClient implements ClientInterface {
     public static void main(String[] args) {
         ChatClient chatClient = new ChatClient();
 
-        // Set the GUI for the client
-        ClientGUI cGUI = new ClientGUI(chatClient);
-        chatClient.setGUI(cGUI);
-
         // Locate the remote stub for the chat server (Using localhost:5555) for now
         try {
             //TODO: CHANGE LOCALHOST/PORT TO BE USER INPUTS
@@ -139,9 +190,14 @@ public class ChatClient implements ClientInterface {
             chatClient.setChatStub(chatClient.getRemoteReg());
 
         } catch (RemoteException re) {
-            LOGGER.severe("Could not find remote!");
+            LOGGER.severe(re.toString());
+            LOGGER.severe("Could not find remote on client instantiation. Restart the client!");
         } catch (NotBoundException nbe) {
             LOGGER.severe("Registry name not found!");
         }
+
+        // Set the GUI for the client
+        ClientGUI cGUI = new ClientGUI(chatClient);
+        chatClient.setGUI(cGUI);
     }
 }

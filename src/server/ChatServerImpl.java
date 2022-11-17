@@ -10,15 +10,15 @@ import client.ClientInterface;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
+
+// RMI Registry Imports
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
-import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
-// RMI Imports
-import java.rmi.server.RemoteServer;
-import java.rmi.server.ServerNotActiveException;
+import java.time.Instant;
 // Java Imports
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -55,6 +55,7 @@ public class ChatServerImpl implements ChatServerInterface {
     private Learner learner;
 
     // User database
+    // Should be a map of username : user stat object like their PW or if they are active
     private Map<String,String> userDatabase;
 
     // The rooms and associated users
@@ -141,17 +142,9 @@ public class ChatServerImpl implements ChatServerInterface {
 
     // =======================================
 
-    public String createChatRoom(String chatName, String user) throws RemoteException {
-        // try {
-        //     ClientInterface cli1 = (ClientInterface)remoteReg.lookup("client:calvin");
-        //     cli1.displayMessage("Message from the server.");
-        //     LOGGER.info("Sending message to client:calvin");
-        // } catch (NotBoundException nbe) {
-        //     LOGGER.severe("No client bound after creating chatroom");
-        // }
-        
+    public String createChatRoom(String chatName, String user) throws RemoteException {        
         if (this.chatRoomUsers.containsKey(chatName)) {
-            return "Chat room name already exists!";
+            return "exists";
         }
         // Make a new chat room and put in the user who made the room
         ArrayList<String> userList = new ArrayList<String>();
@@ -164,27 +157,79 @@ public class ChatServerImpl implements ChatServerInterface {
         // Add user to the room if it contains the key
         if (this.chatRoomUsers.containsKey(chatName)) {
             this.chatRoomUsers.get(chatName).add(user);
+            // Broadcast to everyone in the chatroom that a user has joined
+            List<String> currRoomUsers = this.chatRoomUsers.get(chatName);
+            for (String name : currRoomUsers) {
+                if (name.equals(user)){
+                    continue;
+                }
+                try {
+                    // Look up the client in the registry and call its displayMessage remote method
+                    ClientInterface client = (ClientInterface)remoteReg.lookup(String.format("client:%s", name));
+                    client.displayUserJoinLeave(Instant.now(), user, "joined");
+                    LOGGER.info(String.format("User: %s joined chatroom: %s.", user, chatName));
+                } catch (NotBoundException nbe) {
+                    LOGGER.severe(String.format("User: %s is no longer connected. Not bound to registry.", name));
+                } catch (RemoteException re) {
+                    LOGGER.severe(String.format("Error accessing the remote: %s.", name));
+                }
+            }
             return "success";
         }
         return "fail";
     }
 
-    public void broadCastMessage(String chatroom, String message) {
+    // =======================================================
+
+    //      Broadcast a Message to Room Participants
+
+    // ========================================================
+
+    public void broadCastMessage(Instant timeStamp, String user, String chatroom, String message) {
+        // If the room is not available just return. Nothing to do
         if (!this.chatRoomUsers.containsKey(chatroom)) {
             return;
         }
 
-        for (String name : this.chatRoomUsers.get(chatroom)) {
+        // Iterate through all clients currently connected to room on the server.
+        List<String> currRoomUsers = this.chatRoomUsers.get(chatroom);
+        for (String name : currRoomUsers) {
             try {
+                // Look up the client in the registry and call its displayMessage remote method
                 ClientInterface client = (ClientInterface)remoteReg.lookup(String.format("client:%s", name));
-                client.displayMessage(message);
-                LOGGER.info(String.format("Broadcasted message to: %s", name));
+                client.displayMessage(timeStamp, user, message);
+                LOGGER.info(String.format("User: %s broadcasted message to: %s in chatroom: %s", user, name, chatroom));
             } catch (NotBoundException nbe) {
                 LOGGER.severe(String.format("User: %s is no longer connected. Not bound to registry.", name));
             } catch (RemoteException re) {
-                LOGGER.severe(String.format("Error accessing the remote: %s", name));
+                LOGGER.severe(String.format("Error accessing the remote: %s.", name));
             }
         }
+    }
+
+    public void notifyJoinLeave(Instant timeStamp, String user, String chatroom, String joinLeave) {
+        
+    }
+
+
+    public Map<String,Integer> getChatRoomInformation() {
+        Map<String, Integer> roomsAndUsers = new HashMap<String, Integer>();
+
+        if (this.chatRoomUsers.isEmpty()) {
+            return null;
+        }
+
+        for (Map.Entry<String, List<String>> roomUsers : this.chatRoomUsers.entrySet()) {
+            roomsAndUsers.put(roomUsers.getKey(), roomUsers.getValue().size());
+        }
+        return roomsAndUsers;
+    }
+
+    public List<String> getChatUsers(String chatName) {
+        if (!this.chatRoomUsers.containsKey(chatName)) {
+            return null;
+        }
+        return this.chatRoomUsers.get(chatName);
     }
 
     // =========================

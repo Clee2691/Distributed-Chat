@@ -4,6 +4,9 @@ package gui;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.rmi.RemoteException;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
 
@@ -15,6 +18,7 @@ import javax.swing.*;
 
 // Java Utils
 import java.util.ArrayList;
+import java.util.Map;
 
 // Custom Imports
 import client.ChatClient;
@@ -40,12 +44,12 @@ public class ClientGUI {
 
   // Vars for construction / login / register
   public ChatClient client;
+  public String myUsername;
+  public String currChatRoom;
+
   public JFrame frame;
   public JPanel panel;
   public ArrayList<Component> componentsOnPanel;
-
-  public String myUsername;
-  private String currChatRoom;
 
   public JButton loginButton;
   public JTextField loginUsername;
@@ -60,6 +64,8 @@ public class ClientGUI {
   public JButton registerButton;
   public JLabel registerUsernameLabel;
   public JLabel registerPasswordLabel;
+  public JTextArea activeChatArea;
+
   public JLabel toastLabel;
 
   // Vars for Chat selection screen
@@ -115,23 +121,23 @@ public class ClientGUI {
    * Log in the user if user is in the database.
    */
   public void loginUser() {
-    if (loginUsername.getText().length() == 0 || loginPassword.getText().length() == 0) {
-      openToastLabel("Enter a username and password!");
+    if (registerUsername.getText().length() == 0 || registerPassword.getText().length() == 0) {
+      openPopUp("Enter a username and password!");
     } else {
       Response res = null;
 
       try {
-        res = client.loginUser(loginUsername.getText(), loginPassword.getText());
+        res = client.loginUser(registerUsername.getText(), registerPassword.getText());
         // change GUI to open chat selection screen
         if (res.getServerReply().equalsIgnoreCase("success")) {
-          myUsername = loginUsername.getText();
+          myUsername = registerUsername.getText();
           LOGGER.severe("SUCCESS: Successfully logged in.");
           openChatSelectionScreen();
         } else if (res.getServerReply().equalsIgnoreCase("incorrect")) {
-          openToastLabel("Incorrect username/password!");
+          openPopUp("Incorrect username/password!");
           LOGGER.severe("FAIL: Incorrect username/password.");
         } else {
-          openToastLabel("This user already logged in!");
+          openPopUp("This user already logged in!");
           LOGGER.severe("FAIL: Already logged in.");
         }
       } catch (RemoteException re) {
@@ -146,32 +152,56 @@ public class ClientGUI {
   public void registerUser() {
     // send register username and password
     if (registerUsername.getText().length() == 0 || registerPassword.getText().length() == 0) {
-      openToastLabel("Enter a username and password!");
+      openPopUp("Enter a username and password!");
     } else {
       Response res = null;
       try {
         res = client.registerUser(registerUsername.getText(), registerPassword.getText());
         
         if (res == null) {
-          openToastLabel("Something went wrong registering. Try again.");
+          openPopUp("Something went wrong registering. Try again.");
           LOGGER.severe("RegisterUser response is null.");
         } else if  (res.getServerReply().equalsIgnoreCase("success")) {
           myUsername = registerUsername.getText();
           LOGGER.info("User successfully logged in!");
           openChatSelectionScreen();
         } else {
-          openToastLabel(res.getServerReply());
+          openPopUp(res.getServerReply());
           LOGGER.severe(res.getServerReply());
         }
       } catch (RemoteException re) {
+        LOGGER.severe(re.toString());
         LOGGER.severe("ERROR: Failed connecting to the server. Failed registering user!");
       }
     }
   }
 
+  /**
+   * Update the room list on the start page
+   */
+  public void setRoomList() {
+    activeChatArea.setText("");
+    // Get the rooms and the number of users within it
+    try {
+      Map<String, Integer> roomAndNumUsers = client.getChatRoomInformation();
+      if (roomAndNumUsers == null) {
+        LOGGER.severe("No rooms currently active.");
+        activeChatArea.append("No active rooms currently\n");
+      } else {
+        for (Map.Entry<String, Integer> roomUsers : roomAndNumUsers.entrySet()) {
+          activeChatArea.append(String.format(
+                          "Name: %s | Currently Active Users: %d\n",
+                                  roomUsers.getKey(), roomUsers.getValue()));
+        }
+      }
+    } catch (RemoteException re) {
+      LOGGER.severe("Couldn't get the rooms and the number of users. Server might be down!");
+    }
+  }
+
   // =================================
 
-  //         Utility Functions
+  //         GUI Utility Functions
 
   // =================================
 
@@ -179,7 +209,7 @@ public class ClientGUI {
    * Display the resulting error.
    * @param message
    */
-  public void openToastLabel(String message) {
+  public void openPopUp(String message) {
     JFrame resFrame = new JFrame();
     JPanel resPanel = new JPanel();
 
@@ -217,18 +247,25 @@ public class ClientGUI {
    * Add component to the list of components so that they can be tracked and removed as necessary.
    * @param component
    */
-  public void addComponentToPanel(Component component) {
+  public void addComponentToPanel(Component component, GridBagConstraints gbc) {
     this.componentsOnPanel.add(component);
-    this.panel.add(component);
+    this.panel.add(component, gbc);
   }
 
   /**
    * Display a message and who it was sent by in the chatroom text area.
-   * @param sender
-   * @param message
+   * @param timeStamp The time stamp for the sent message
+   * @param sender The sender of the message
+   * @param message The message that was sent
    */
-  public void displayNewMessage(String sender, String message) {
-    this.chatroomTextArea.append(sender + ": " + message + "\n");
+  public void displayNewMessage(Instant timeStamp, String sender, String message) {
+
+    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+            .withZone(ZoneId.systemDefault());
+
+    String formattedTime = formatter.format(timeStamp);
+    this.chatroomTextArea.append(
+      String.format("[%s] %s: %s\n", formattedTime, sender, message));
   }
 
   // ===============================================
@@ -248,11 +285,7 @@ public class ClientGUI {
     public void actionPerformed(ActionEvent e) {
       chatroomName = joinChatField.getText();
       if (chatroomName.length() == 0) {
-        openToastLabel("Provide a chatroom name!");
-      } else if (chatroomName.contains("@#@") || chatroomName.contains("%&%")) {
-        // These are special reserved sequences since all communication is through sockets and
-        // delineators between content must be kept unique.
-        openToastLabel("Do not use special reserved sequences '@#@' or '%&%'!");
+        openPopUp("Provide a chatroom name!");
       } else {
         String response = null;
         try {
@@ -264,8 +297,9 @@ public class ClientGUI {
         if (response.equalsIgnoreCase("success")) {
           currChatRoom = chatroomName;
           openChatroomScreen();
+          client.displayUserJoinLeave(Instant.now(), myUsername, "joined");
         } else { // lookup server returns "nonexistent"
-          openToastLabel("Chatroom name does not exist!");
+          openPopUp("Chatroom name does not exist!");
         }
       }
     }
@@ -282,21 +316,22 @@ public class ClientGUI {
     public void actionPerformed(ActionEvent e) {
       chatroomName = createChatField.getText();
       if (chatroomName.length() == 0) {
-        openToastLabel("Enter the name for a chatroom!");
+        openPopUp("Enter the name for a chatroom!");
       }else {
         String res = null;
         try {
           res = client.createChatRoom(chatroomName, myUsername);
         } catch (RemoteException re) {
-          LOGGER.severe("Error creating a chatroom!");
+          LOGGER.severe("Error creating a chatroom! Server might be down!");
           return;
         }
         
         if (res.equalsIgnoreCase("success")) {
           currChatRoom = chatroomName;
           openChatroomScreen();
-        } else { // when lookup server returns "exists"
-          openToastLabel("A chatroom already has that name!");
+          client.displayUserJoinLeave(Instant.now(), myUsername, "joined");
+        } else if (res.equalsIgnoreCase("exists")) {
+          openPopUp("A chatroom with that name already exists!");
         }
       }
     }
@@ -336,14 +371,18 @@ public class ClientGUI {
     }
   }
 
+  /**
+   * The action performed when the send button is pressed.
+   * Must be a message of at least length 1.
+   */
   public void sendNewMessage() {
     String newMessage = chatroomNewMessageField.getText();
     
     if (newMessage.length() == 0) {
-      openToastLabel("Message cannot be empty!");
+      openPopUp("Message cannot be empty!");
     } else {
       try {
-        client.sendMessage(currChatRoom, chatroomNewMessageField.getText());
+        client.sendMessage(Instant.now(), myUsername, currChatRoom, chatroomNewMessageField.getText());
       } catch (RemoteException re) {
         LOGGER.severe("Error sending message!");
       }
@@ -395,10 +434,27 @@ public class ClientGUI {
    */
   public void openChatroomScreen() {
     this.removeAllComponents();
-    panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+
+    panel.setLayout(new GridBagLayout());
+    GridBagConstraints gbc = new GridBagConstraints();
 
     // Add messaging components to panel
-    this.chatroomLabel = new JLabel("Your username: " + this.myUsername);
+    this.chatroomLabel = new JLabel(
+                              String.format("Chat: %s | Username: %s", 
+                              this.currChatRoom, 
+                              this.myUsername), SwingConstants.CENTER);
+    this.chatroomLabel.setFont(new Font("Calibri", Font.BOLD, 20));
+    gbc.gridwidth = 2;
+    gbc.anchor = GridBagConstraints.NORTHWEST;
+    gbc.fill = GridBagConstraints.HORIZONTAL;
+    gbc.gridx = 0;
+    gbc.gridy = 0;
+    gbc.ipady = 50;
+    gbc.weightx = 0.5;
+    gbc.weighty = 0.1;
+    addComponentToPanel(chatroomLabel, gbc);
+
+    // The text area showing the messages
     this.chatroomTextArea = new JTextArea(10, 30);
     this.chatroomScrollPane = new JScrollPane(this.chatroomTextArea);
     this.chatroomTextArea.setEditable(false);
@@ -406,7 +462,24 @@ public class ClientGUI {
     // that a new message will not force the screen to move to the bottom if the user has scrolled
     // up and is looking at older messages.
     new SmartScroller(this.chatroomScrollPane);
+    gbc.gridwidth = 2;
+    gbc.insets = new Insets(0, 0, 10, 0);
+    gbc.fill = GridBagConstraints.BOTH;
+    gbc.gridx = 0;
+    gbc.gridy = 1;
+    gbc.ipady = 0;
+    addComponentToPanel(this.chatroomScrollPane, gbc);
+    
+
     this.chatroomNewMessageField = new JTextField(30);
+    gbc.insets = new Insets(0, 0, 0, 5);
+    gbc.gridwidth = 1;
+    gbc.fill = GridBagConstraints.HORIZONTAL;
+    gbc.gridx = 0;
+    gbc.gridy = 2;
+    gbc.ipady = 10;
+    addComponentToPanel(this.chatroomNewMessageField, gbc);
+
     this.chatroomNewMessageButton = new JButton("Send");
     this.chatroomNewMessageButton.addActionListener(new ActionListener() {
       @Override
@@ -414,12 +487,12 @@ public class ClientGUI {
         sendNewMessage();
       }
     });
-    this.chatroomSeparator = new JSeparator();
-    addComponentToPanel(this.chatroomLabel);
-    addComponentToPanel(this.chatroomScrollPane);
-    addComponentToPanel(this.chatroomNewMessageField);
-    addComponentToPanel(this.chatroomNewMessageButton);
-    addComponentToPanel(this.chatroomSeparator);
+    gbc.gridwidth = 1;
+    gbc.fill = GridBagConstraints.HORIZONTAL;
+    gbc.gridx = 1;
+    gbc.gridy = 2;
+    gbc.ipady = 0;
+    addComponentToPanel(this.chatroomNewMessageButton, gbc);
 
     // Add section for what room members are in chatroom
     this.roomMembersLabel = new JLabel("Users in this chatroom:");
@@ -429,20 +502,21 @@ public class ClientGUI {
     new SmartScroller(this.roomMembersScrollPane);
     this.getUsersInChatroomButton = new JButton("Update Members In Room");
     this.getUsersInChatroomButton.addActionListener(new GetUsersInChatroomButtonListener());
-    addComponentToPanel(this.roomMembersLabel);
-    addComponentToPanel(this.roomMembersScrollPane);
-    addComponentToPanel(this.getUsersInChatroomButton);
+    // addComponentToPanel(this.roomMembersLabel);
+    // addComponentToPanel(this.roomMembersScrollPane);
+    // addComponentToPanel(this.getUsersInChatroomButton);
 
     // Add button to go back to menu to join another chatroom
     this.backToChatSelectionButton = new JButton("Go Back To Chatroom Selection Screen");
     this.backToChatSelectionButton.addActionListener(new BackToChatSelectionButtonListener());
     this.logoutButton = new JButton("Log Out");
     this.logoutButton.addActionListener(new ChatroomLogOutButtonListener());
-    addComponentToPanel(this.backToChatSelectionButton);
-    addComponentToPanel(this.logoutButton);
+    // addComponentToPanel(this.backToChatSelectionButton);
+    // addComponentToPanel(this.logoutButton);
 
-    frame.setTitle(this.chatroomName + " Chatroom");
-    frame.pack();
+    frame.setTitle(String.format("Chatroom: %s", this.currChatRoom));
+    frame.getContentPane().validate();
+    frame.getContentPane().repaint();
   }
 
   /**
@@ -452,7 +526,6 @@ public class ClientGUI {
    */
   public void openChatSelectionScreen() {
     this.removeAllComponents();
-    //panel.setLayout(new GridLayout(0, 2));
     panel.setLayout(new GridBagLayout());
     GridBagConstraints gbc = new GridBagConstraints();
 
@@ -466,7 +539,7 @@ public class ClientGUI {
     gbc.insets = new Insets(0, 50, 0, 0);
     gbc.weightx = 1;
     gbc.weighty = 1;
-    panel.add(userLabel, gbc);
+    addComponentToPanel(userLabel, gbc);
 
     logoutButton = new JButton("Log Out");
     logoutButton.addActionListener(new ChatSelectionLogOutButtonListener());
@@ -478,7 +551,7 @@ public class ClientGUI {
     gbc.insets = new Insets(0, 10, 0, 0);
     gbc.weightx = 1;
     gbc.weighty = 1;
-    panel.add(logoutButton, gbc);
+    addComponentToPanel(logoutButton, gbc);
 
     // Joining chat
     joinChatLabel = new JLabel("Join Chatroom (Enter Name):");
@@ -488,33 +561,33 @@ public class ClientGUI {
     gbc.insets = new Insets(0, 0, 0, 0);
     gbc.gridx = 0;
     gbc.gridy = 1;
-    panel.add(joinChatLabel, gbc);
+    addComponentToPanel(joinChatLabel, gbc);
 
     joinChatField = new JTextField(10);
     gbc.gridx = 1;
     gbc.gridy = 1;
-    panel.add(joinChatField, gbc);
+    addComponentToPanel(joinChatField, gbc);
 
     joinChatButton = new JButton("Join Chat");
     joinChatButton.addActionListener(new JoinChatButtonListener());
     gbc.insets = new Insets(0, 10, 0, 0);
     gbc.gridx = 2;
     gbc.gridy = 1;
-    panel.add(joinChatButton, gbc);
+    addComponentToPanel(joinChatButton, gbc);
 
     createChatLabel = new JLabel("Create Chatroom (Enter Name):");
     gbc.insets = new Insets(0, 0, 0, 0);
     gbc.gridwidth = 1;
     gbc.gridx = 0;
     gbc.gridy = 2;
-    panel.add(createChatLabel, gbc);
+    addComponentToPanel(createChatLabel, gbc);
 
     createChatField = new JTextField(10);
     gbc.insets = new Insets(0, 0, 0, 0);
     gbc.gridwidth = 1;
     gbc.gridx = 1;
     gbc.gridy = 2;
-    panel.add(createChatField, gbc);
+    addComponentToPanel(createChatField, gbc);
     
     createChatButton = new JButton("Create Chat");
     createChatButton.addActionListener(new CreateChatButtonListener());
@@ -522,10 +595,7 @@ public class ClientGUI {
     gbc.gridwidth = 1;
     gbc.gridx = 2;
     gbc.gridy = 2;
-    panel.add(createChatButton, gbc);
-
-    
-    
+    addComponentToPanel(createChatButton, gbc);
 
     // all components for displaying live chatrooms and how many people are in them
     allChatroomNamesLabel = new JLabel("Available Chatrooms:");
@@ -538,8 +608,8 @@ public class ClientGUI {
     allChatroomMembersScrollPane = new JScrollPane(allChatroomMembersTextArea);
     allChatroomMembersTextArea.setEditable(false);
     new SmartScroller(allChatroomMembersScrollPane);
-    // TODO: CHANGE THIS
-    ArrayList<String[]> chatNameNumberPairs = new ArrayList<>();//this.client.attemptGetNumUsersInChatrooms();
+
+    //ArrayList<String[]> chatNameNumberPairs = new ArrayList<>();//this.client.attemptGetNumUsersInChatrooms();
     // for (String[] chatNameNumberPair : chatNameNumberPairs) {
     //   String roomName = chatNameNumberPair[0];
     //   String numUsers = chatNameNumberPair[1];
@@ -564,83 +634,80 @@ public class ClientGUI {
     // addComponentToPanel(logoutButton);
 
     frame.setTitle(String.format("Join/Create Chatroom: %s", myUsername));
-    frame.pack();
+    frame.getContentPane().validate();
+    frame.getContentPane().repaint();
   }
 
   /**
-   * Open a frame for users to register.
+   * Open a new frame (window) for users to register.
    */
-  public void openRegisterScreen() {
-    LOGGER.info("Displaying register screen.");
-    JFrame regFrame = new JFrame("Register");
+  public void openRegisterLoginScreen(String type) {
+    LOGGER.info(String.format("Displaying %s screen.", type));
+
+    // New frame that becomes the popup window
+    JFrame regFrame = new JFrame(type);
     JPanel regPanel = new JPanel();
-
+    // GridBagLayout is used
     regPanel.setBorder(BorderFactory.createEmptyBorder(30, 30, 10, 30));
-    regPanel.setLayout(new GridLayout(0, 1));
+    regPanel.setLayout(new GridBagLayout());
+    GridBagConstraints gbc = new GridBagConstraints();
 
-    this.registerTitleLabel = new JLabel("Register");
-    this.registerTitleLabel.setFont(new Font("Serif", Font.BOLD, 26));
+    this.registerTitleLabel = new JLabel(type);
+    this.registerTitleLabel.setFont(new Font("Serif", Font.BOLD, 30));
+    gbc.gridwidth = 2;
+    gbc.anchor = GridBagConstraints.NORTHWEST;
+    gbc.fill = GridBagConstraints.BOTH;
+    gbc.gridx = 0;
+    gbc.gridy = 0;
+    gbc.insets = new Insets(0, 50, 0, 0);
+    gbc.weightx = 1;
+    gbc.weighty = 1;
+    regPanel.add(registerTitleLabel, gbc);
+
     this.registerUsernameLabel = new JLabel("Username:");
+    gbc.gridwidth = 1;
+    gbc.fill = GridBagConstraints.HORIZONTAL;
+    gbc.gridx = 0;
+    gbc.gridy = 1;
+    gbc.insets = new Insets(0, 0, 0, 0);
+    regPanel.add(registerUsernameLabel, gbc);
+
     this.registerUsername = new JTextField(10);
+    gbc.gridx = 1;
+    gbc.gridy = 1;
+    regPanel.add(registerUsername, gbc);
+    
     this.registerPasswordLabel = new JLabel("Password:");
+    gbc.gridx = 0;
+    gbc.gridy = 2;
+    regPanel.add(registerPasswordLabel, gbc);
+    
     this.registerPassword = new JTextField(10);
-    this.registerButton = new JButton("Register");
+    gbc.gridx = 1;
+    gbc.gridy = 2;
+    regPanel.add(registerPassword, gbc);
+
+    this.registerButton = new JButton(type);
+    gbc.gridwidth = 2;
+    gbc.gridx = 0;
+    gbc.gridy = 3;
+
     this.registerButton.addActionListener(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
-        registerUser();
+        if (type.equals("Register")) {
+          registerUser();
+        } else if (type.equals("Login")){
+          loginUser();
+        }
       }
     });
-
-    regPanel.add(registerTitleLabel);
-    regPanel.add(registerUsernameLabel);
-    regPanel.add(registerUsername);
-    regPanel.add(registerPasswordLabel);
-    regPanel.add(registerPassword);
-    regPanel.add(registerButton);
-
+    regPanel.add(registerButton, gbc);
+    
+    // Add the panel to the frame
     regFrame.add(regPanel, BorderLayout.CENTER);
     regFrame.setSize(300,400);
     regFrame.setVisible(true); 
-  }
-
-  /**
-   * Open a frame for users to login.
-   */
-  public void openLoginScreen() {
-    LOGGER.info("Displaying login screen.");
-    JFrame loginFrame = new JFrame("Login");
-    JPanel loginPanel = new JPanel();
-
-    loginPanel.setBorder(BorderFactory.createEmptyBorder(30, 30, 10, 30));
-    loginPanel.setLayout(new GridLayout(0, 1));
-
-    // components for registering
-    this.loginTitleLabel = new JLabel("Login");
-    this.loginTitleLabel.setFont(new Font("Serif", Font.BOLD, 26));
-    this.loginUsernameLabel = new JLabel("Username:");
-    this.loginUsername = new JTextField(10);
-    this.loginPasswordLabel = new JLabel("Password:");
-    this.loginPassword = new JTextField(10);
-    this.loginButton = new JButton("Login");
-
-    this.loginButton.addActionListener(new ActionListener() {
-      @Override
-      public void actionPerformed(ActionEvent e) {
-        loginUser();
-      }
-    });
-
-    loginPanel.add(loginTitleLabel);
-    loginPanel.add(loginUsernameLabel);
-    loginPanel.add(loginUsername);
-    loginPanel.add(loginPasswordLabel);
-    loginPanel.add(loginPassword);
-    loginPanel.add(loginButton);
-
-    loginFrame.add(loginPanel, BorderLayout.CENTER);
-    loginFrame.setSize(300,400);
-    loginFrame.setVisible(true); 
   }
 
   /**
@@ -652,41 +719,95 @@ public class ClientGUI {
     // Clear the frame
     this.removeAllComponents();
 
+    // Set a panel layout
+    panel.setBorder(BorderFactory.createEmptyBorder(30, 30, 10, 30));
+    panel.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT);
+    panel.setLayout(new GridBagLayout());
+
+    GridBagConstraints gbc = new GridBagConstraints();
+
+    JLabel appLabel = new JLabel("Distributed Chat Application", SwingConstants.CENTER);
+    appLabel.setFont(new Font("Calibri", Font.BOLD, 30));
+    gbc.gridwidth = 2;
+    gbc.anchor = GridBagConstraints.NORTHWEST;
+    gbc.fill = GridBagConstraints.HORIZONTAL;
+    gbc.gridx = 0;
+    gbc.gridy = 0;
+    gbc.ipady = 50;
+    gbc.weightx = 0.5;
+    gbc.weighty = 0.1;
+    addComponentToPanel(appLabel, gbc);
+
+    JLabel activeChatLabel = new JLabel("Currently Active Chatrooms:");
+    gbc.gridwidth = 1;
+    activeChatLabel.setFont(new Font("Calibri", Font.BOLD, 18));
+    gbc.insets = new Insets(0, 0, 0, 0);
+    gbc.ipady = 0;
+    gbc.gridx = 0;
+    gbc.gridy = 1;
+    addComponentToPanel(activeChatLabel, gbc);
+
+    JButton refreshRooms = new JButton("Refresh List");
+    refreshRooms.addActionListener(new ActionListener() {
+      @Override
+      public void actionPerformed(ActionEvent e) {
+        setRoomList();
+      }
+    });
+
+    gbc.insets = new Insets(0, 0, 0, 0);
+    gbc.fill = GridBagConstraints.HORIZONTAL;
+    gbc.ipady = 10;
+    gbc.gridx = 1;
+    gbc.gridy = 1;
+    addComponentToPanel(refreshRooms, gbc);
+
+    this.activeChatArea = new JTextArea(6, 6);
+    this.activeChatArea.setEditable(false);
+    gbc.gridwidth = 2;
+    gbc.insets = new Insets(0, 0, 10, 0);
+    gbc.fill = GridBagConstraints.BOTH;
+    gbc.ipady = 0;
+    gbc.gridx = 0;
+    gbc.gridy = 2;
+    addComponentToPanel(activeChatArea, gbc);
+
+    // Update list of active chat rooms
+    setRoomList();
+
     // Add the register button
     JButton regButton = new JButton("Register");
     regButton.addActionListener(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
-        openRegisterScreen();
+        openRegisterLoginScreen("Register");
       }
     });
-
-    // A separator
-    JSeparator startSeparator = new JSeparator();
+    gbc.gridwidth = 1;
+    gbc.ipady = 10;
+    gbc.fill = GridBagConstraints.HORIZONTAL;
+    gbc.gridx = 0;
+    gbc.gridy = 3;
+    addComponentToPanel(regButton, gbc);
 
     // Add the loging button
     JButton loginButton = new JButton("Login");
     loginButton.addActionListener(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
-        openLoginScreen();
+        openRegisterLoginScreen("Login");
       }
     });
+    gbc.gridx = 1;
+    gbc.gridy = 3;
 
-    // Set a panel layout
-    panel.setBorder(BorderFactory.createEmptyBorder(30, 30, 10, 30));
-    panel.setLayout(new GridLayout(0, 1));
-
-    // Add the buttons/separator to the panel
-    addComponentToPanel(loginButton);
-    addComponentToPanel(startSeparator);
-    addComponentToPanel(regButton);
+    addComponentToPanel(loginButton, gbc);
 
     // Display the frame and panel
     frame.add(panel, BorderLayout.CENTER);
     frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
     frame.setTitle("Distributed Chat: Login/Register");
-    frame.setSize(500,500);
+    frame.setSize(600,400);
     frame.setVisible(true);
   }
 }
