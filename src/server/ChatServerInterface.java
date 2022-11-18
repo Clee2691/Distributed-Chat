@@ -163,7 +163,7 @@ public interface ChatServerInterface extends Remote{
      * @throws RemoteException
      * @throws SocketTimeoutException
      */
-    KVOperation accept(int propId, KVOperation val) throws RemoteException, SocketTimeoutException;
+    DBOperation accept(int propId, DBOperation val) throws RemoteException, SocketTimeoutException;
 
     /**
      * Send a commit to the learners to commit the accepted proposal and value
@@ -171,5 +171,5 @@ public interface ChatServerInterface extends Remote{
      * @return String that is the result of the request.
      * @throws RemoteException
      */
-    String commit(KVOperation theVal) throws RemoteException;
+    String commit(DBOperation theVal) throws RemoteException;
 }

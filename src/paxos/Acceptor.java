@@ -7,11 +7,10 @@ import java.io.FileInputStream;
 import java.io.IOException;
 
 // Custom Imports
-import server.KVOperation;
+import server.DBOperation;
 
 // Java Imports
 import java.util.Random;
-import java.net.SocketTimeoutException;
 
 public class Acceptor extends Thread {
     // Set up logging with a custom properties file
@@ -28,7 +27,8 @@ public class Acceptor extends Thread {
     private int prevProposalId;
     private int prevAcceptedId;
     private int serverPort;
-    private KVOperation prevVal;
+    
+    private DBOperation prevVal;
 
     Random rand = new Random();
 
@@ -48,7 +48,7 @@ public class Acceptor extends Thread {
         return this.prevProposalId;
     }
 
-    public void setKVOp(KVOperation kvOp) {
+    public void setKVOp(DBOperation kvOp) {
         this.prevVal = kvOp;
     }
 
@@ -56,7 +56,7 @@ public class Acceptor extends Thread {
         this.serverPort = port;
     }
     
-    public KVOperation getKVOp() {
+    public DBOperation getKVOp() {
         return this.prevVal;
     }
 
@@ -66,12 +66,7 @@ public class Acceptor extends Thread {
      * @param prop The proposal ID
      * @return True for a "promise" or false
      */
-    public boolean prepare(int prop) throws SocketTimeoutException {
-        // Simulate a timeout
-        if (rand.nextInt(5) == 0) {
-            LOGGER.severe(String.format("Socket timed out in acceptor for prepare on server: %d", this.serverPort));
-            throw new SocketTimeoutException("Waiting too long");
-        }
+    public boolean prepare(int prop) {
 
         if (!(prop > this.prevProposalId)) {
             // Rejection
@@ -92,13 +87,7 @@ public class Acceptor extends Thread {
      * @param prop The prosposal ID
      * @return The operation if accepting the proposal
      */
-    public KVOperation accept(int prop, KVOperation val) throws SocketTimeoutException{
-        // Simulate a timeout
-        if (rand.nextInt(5) == 0) {
-            LOGGER.severe(String.format("Socket timed out in acceptor for accept in server: %d", this.serverPort));
-            throw new SocketTimeoutException("Waiting too long");
-        }
-
+    public DBOperation accept(int prop, DBOperation val) {
         if (!(prop > this.prevAcceptedId)) {
             // Rejection
             return null;

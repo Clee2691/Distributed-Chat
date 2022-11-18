@@ -84,7 +84,7 @@ public class KVCoordinator {
                                                          currPort);
                 // Creates and exports a Registry instance on the local host that accepts requests on the specified port.
                 Registry registry = LocateRegistry.createRegistry(currPort);
-                registry.rebind("KVS", kvStub);
+                registry.bind("KVS", kvStub);
 
                 // Register information of other replicas to the current server.
                 // I.e keep information about other servers

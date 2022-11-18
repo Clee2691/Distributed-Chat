@@ -51,7 +51,7 @@ public class ChatServerImpl implements ChatServerInterface {
         }
     }
 
-    int port;
+    private int port;
 
     // Paxos
     private Proposer proposer;
@@ -60,7 +60,7 @@ public class ChatServerImpl implements ChatServerInterface {
 
     // User database
     // Should be a map of username : user stat object like their PW or if they are active
-    private Map<String,String> userDatabase;
+    private Map<String, String> userDatabase;
 
     // The rooms and associated users
     // Name of room : List of users in the room
@@ -68,7 +68,7 @@ public class ChatServerImpl implements ChatServerInterface {
 
     // The rooms and their chat histories
     // Room name: List of messages
-    private Map<String,List<String>> chatRoomHistory;
+    private Map<String, List<String>> chatRoomHistory;
 
     private Registry remoteReg;
 
@@ -76,17 +76,17 @@ public class ChatServerImpl implements ChatServerInterface {
      * Empty constructor initializing the store.
      */
     public ChatServerImpl(int p) {
-        this.userDatabase = new ConcurrentHashMap<String,String>();
+        this.userDatabase = new ConcurrentHashMap<String, String>();
         this.chatRoomUsers = new ConcurrentHashMap<String, List<String>>();
         this.chatRoomHistory = new ConcurrentHashMap<String, List<String>>();
 
         // Paxos proposer,acceptor,learner
+        // Every server is it's own proposer, acceptor, and learner
         this.proposer = new Proposer();
         this.acceptor = new Acceptor();
         this.learner = new Learner();
 
         this.port = p;
-
     }
 
     // Set the registry for this server
@@ -110,7 +110,6 @@ public class ChatServerImpl implements ChatServerInterface {
 
     // =========================
 
-    // TODO: Use PAXOS for consensus for registering
     @Override
     public synchronized Response registerUser(String username, String password) {
         // If username already in the store, user must choose a different username
@@ -119,9 +118,14 @@ public class ChatServerImpl implements ChatServerInterface {
             LOGGER.severe(mess);
             return new Response(Level.SEVERE, mess);
         }
-        userDatabase.put(username, password);
-        LOGGER.info(String.format("Successfully registered user with username: %s.", username));
-        return new Response(Level.INFO, "success");
+        // Start paxos
+        Response res = this.proposer.propose("register", username, password, "", "");
+        if (res.getServerReply().equals("success")) {
+            LOGGER.info(String.format("Successfully registered user with username: %s.", username));
+            return new Response(Level.INFO, "success");
+        }
+        return new Response(Level.INFO, "fail");
+
     }
 
     @Override
@@ -162,7 +166,7 @@ public class ChatServerImpl implements ChatServerInterface {
 
     @Override
     public String createChatRoom(String chatName, String user) throws RemoteException {        
-        if (this.chatRoomUsers.containsKey(chatName)) {
+        if (this.chatRoomHistory.containsKey(chatName)) {
             return "exists";
         }
 
@@ -290,27 +294,21 @@ public class ChatServerImpl implements ChatServerInterface {
 
     // =====================================
 
+    @Override
     public boolean prepare(int propId) {
-        boolean prepped = false;
-        try {
-            prepped = this.acceptor.prepare(propId);
-        } catch(SocketTimeoutException ste) {
-            LOGGER.severe("Timed out receiving prepare message from acceptor!");
-        }
+        boolean prepped = this.acceptor.prepare(propId);
         return prepped;
     }
 
-    public KVOperation accept(int propId, KVOperation val) {
-        KVOperation accepted = null;
-        try {
-            accepted = this.acceptor.accept(propId, val);
-        } catch(SocketTimeoutException ste) {
-            LOGGER.severe("Timed out receiving prepare message from acceptor!");
-        }
+    @Override
+    public DBOperation accept(int propId, DBOperation val) {
+        DBOperation accepted = this.acceptor.accept(propId, val);
         return accepted;
     }
 
-    public String commit(KVOperation val) {
-        return this.learner.commit(userDatabase, val);
+    @Override
+    public String commit(DBOperation dbOp) {
+        
+        return this.learner.commit(userDatabase, chatRoomUsers, chatRoomHistory, dbOp);
     }
 }

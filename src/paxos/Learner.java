@@ -5,12 +5,12 @@ import java.util.logging.LogManager;
 import java.util.logging.Logger;
 import java.io.FileInputStream;
 import java.io.IOException;
-
+import java.util.List;
 // Java Imports
 import java.util.Map;
 
 // Custom Imports
-import server.KVOperation;
+import server.DBOperation;
 
 /**
  * Learner class that serves as the replication factor. This class is the one
@@ -31,27 +31,27 @@ public class Learner extends Thread {
     /**
      * The commit method that manipulates the key value store.
      * @param store The store in the server
-     * @param kvOp The operation
+     * @param dbOp The operation
      * @return Resulting message
      */
-    public synchronized String commit(Map<String,String> store, KVOperation kvOp) {
+    public synchronized String commit(Map<String,String> userStore, 
+                                        Map<String, List<String>> chatRoomUsers,
+                                        Map<String, List<String>> chatRoomHistory, 
+                                        DBOperation dbOp) {
 
-        // PUT request
-        if (kvOp.getOp().equals("PUT")) {
-            if (store.put(kvOp.getKey(), kvOp.getVal()) == null) {
-                return "insert";
-            }
-            return "update";
-        // DEL request
-        } else if (kvOp.getOp().equals("DEL")) {
-            if (store.containsKey(kvOp.getKey())) {
-                store.remove(kvOp.getKey());
-                return "delSuccess";
-            }
-            return "delFailed";
+        if (dbOp.getOp().equals("register")){
+            userStore.put(dbOp.getUsername(), dbOp.getPassword());
+            return "success";
+        } else if (dbOp.getOp().equals("create")) {
+            
+        } else if (dbOp.getOp().equals("join")) {
+            
+        } else if (dbOp.getOp().equals("send")) {
+
+        } else {
+            return "fail";
         }
-        
-        // Request failure
-        return "FAIL";
+
+        return "fail";
     }
 }

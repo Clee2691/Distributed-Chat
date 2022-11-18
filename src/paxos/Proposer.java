@@ -19,7 +19,7 @@ import java.util.List;
 // Self Imports
 import server.ChatServerInterface;
 import server.Response;
-import server.KVOperation;
+import server.DBOperation;
 
 public class Proposer extends Thread {
     // Set up logging with a custom properties file
@@ -37,7 +37,7 @@ public class Proposer extends Thread {
     private int propId;
 
     // Proposed "value" to accept and commit
-    KVOperation proposedVal;
+    DBOperation proposedVal;
 
     // List of servers
     List<Integer> serverPorts;
@@ -61,21 +61,21 @@ public class Proposer extends Thread {
     
     /**
      * Start paxos proposal
-     * @param operation The operation, PUT/DEL
-     * @param key The key to PUT or DEL
+     * @param operation The operation - Register or send message
+     * @param key If registering, the username/password
      * @param val The value if operation is PUT
      * @return Response object with the server's reply
      */
-    public synchronized Response propose(String operation, String key, String val, String client) {
+    public synchronized Response propose(String operation, String key, String val, String message, String chatroom) {
         // On each propose, increment the proposal ID
         incrementPropID();
 
         // Keep track of the majority of the servers
-        int majority = serverPorts.size() / 2;
+        int majority = (serverPorts.size() / 2) + 1;
 
         // Keep track of the proposed value
         // In this case the value is the new operation
-        proposedVal = new KVOperation(operation, key, val);
+        proposedVal = new DBOperation(operation, key, val, message, chatroom);
 
         // Send prepare messages to acceptors
         // Phase 1a: Prepare
@@ -95,8 +95,8 @@ public class Proposer extends Thread {
                 String.format("Prop ID: %d failed reaching majority promises! Aborting...", 
                 getPropId()));
             return new Response(Level.SEVERE, String.format(
-                "Consensus not reached for prepare. Aborted: %s %s %s",
-                proposedVal.getOp(), proposedVal.getKey(), proposedVal.getVal()));
+                "Consensus not reached for prepare. Aborted: %s",
+                proposedVal.getOp()));
         }
 
         String res = "";
@@ -113,13 +113,13 @@ public class Proposer extends Thread {
                 getPropId()));
             Level logLevel = Level.SEVERE;
             String serverReply = String.format(
-                "Consensus not reached for acceptance. Aborting: %s %s %s",
-                proposedVal.getOp(), proposedVal.getKey(), proposedVal.getVal());
+                "Consensus not reached for acceptance. Aborting: %s.",
+                proposedVal.getOp());
             return new Response(logLevel, serverReply);
         }
 
         // Parse the resultant message from learner and send back the Response object
-        return makeResponse(res, client);
+        return makeResponse(res);
     }
 
     /**
@@ -134,8 +134,8 @@ public class Proposer extends Thread {
             // with the current proposal ID
             try {
                 Registry reg = LocateRegistry.getRegistry(port);
-                ChatServerInterface kvStub = (ChatServerInterface) reg.lookup("KVS");
-                boolean serverPrepped = kvStub.prepare(getPropId());
+                ChatServerInterface chatStub = (ChatServerInterface) reg.lookup("chat");
+                boolean serverPrepped = chatStub.prepare(getPropId());
                 if (serverPrepped) {
                     numPrepped++;
                     LOGGER.info(
@@ -175,13 +175,13 @@ public class Proposer extends Thread {
      * Send accept messages to Acceptors to get them to accept the proposal
      * @return Number of Acceptors that accepted the proposal
      */
-    private int sendAccepts(KVOperation propVal) {
+    private int sendAccepts(DBOperation propVal) {
         int numAccept = 0;
         for(int port: serverPorts) {
             try {
                 Registry reg = LocateRegistry.getRegistry(port);
-                ChatServerInterface kvStub = (ChatServerInterface) reg.lookup("KVS");
-                KVOperation serverAccept = kvStub.accept(getPropId(), propVal);
+                ChatServerInterface chatStub = (ChatServerInterface) reg.lookup("chat");
+                DBOperation serverAccept = chatStub.accept(getPropId(), propVal);
                 if (serverAccept != null) {
                     numAccept++;
                     proposedVal = serverAccept;
@@ -223,16 +223,16 @@ public class Proposer extends Thread {
      * @return String The final status of the commit
      */
     private String sendCommits() {
-        String res = "FAIL";
+        String res = "fail";
 
         // Iterate through all servers to commit the action using the proposed val
         for(int port: serverPorts) {
             try {
                 Registry reg = LocateRegistry.getRegistry(port);
-                ChatServerInterface kvStub = (ChatServerInterface) reg.lookup("KVS");
-                res = kvStub.commit(proposedVal);
+                ChatServerInterface chatStub = (ChatServerInterface) reg.lookup("chat");
+                res = chatStub.commit(proposedVal);
 
-                if (res.equals("FAIL")) {
+                if (res.equals("fail")) {
                     LOGGER.severe(
                         String.format("Server port: %d, commit failed!", 
                         port,
@@ -266,69 +266,15 @@ public class Proposer extends Thread {
      * @param client The client that sent the request
      * @return Response object
      */
-    private Response makeResponse(String res, String client) {
+    private Response makeResponse(String res) {
         String serverReply = "";
         Level logLevel = Level.SEVERE;
 
-        // Parse the resultant commit message from learners
-        if (proposedVal.getOp().equals("DEL")) {
-            // Success delete
-            if (res.equals("delSuccess")) {
-                serverReply = String.format(
-                    "Successfully deleted Key='%s' from the store.", proposedVal.getKey());
-                logLevel = Level.INFO;
-                LOGGER.info(String.format(
-                    "SUCCESS: Received DEL request of KEY='%s' from %s.",
-                    proposedVal.getKey(),
-                    proposedVal.getKey()));
-            // Failed delete, key not in store
-            } else if (res.equals("delFail")) {
-                serverReply = String.format(
-                    "Key='%s' not found in the store. Nothing deleted.", proposedVal.getKey());
-                logLevel = Level.WARNING;
-                LOGGER.warning(String.format(
-                    "FAIL: Received DEL request of KEY='%s' from %s. Key not found.",
-                    proposedVal.getKey(),
-                    client));
-            } else if (res.equals("FAIL")) {
-                serverReply = String.format(
-                    "DEL REQ FAIL: Error with delete request. Nothing deleted.");
-                logLevel = Level.WARNING;
-                LOGGER.warning(String.format(
-                    "DEL REQ FAIL: Received DEL request of KEY='%s' from %s.",
-                    proposedVal.getKey(),
-                    client)); 
-            }
-        } else if (proposedVal.getOp().equals("PUT")) {
-            if (res.equals("insert")) {
-                logLevel = Level.INFO;
-                LOGGER.info(String.format(
-                    "Received PUT (Insert) request of ('%s', '%s') from %s.", 
-                    proposedVal.getKey(), 
-                    proposedVal.getVal(), 
-                    client));
-                serverReply = String.format(
-                    "Successfully inserted new KEY='%s' with VAL='%s' into the store.", proposedVal.getKey(), proposedVal.getVal());
-            // Updated a key
-            } else if (res.equals("update")) {
-                serverReply = String.format(
-                    "Updated KEY='%s' to '%s'.", proposedVal.getKey(), proposedVal.getVal());
-                logLevel = Level.WARNING;
-                LOGGER.warning(String.format(
-                    "Received PUT (Update) request of ('%s', '%s') from %s.", 
-                    proposedVal.getKey(),
-                    proposedVal.getVal(),
-                    client));
-            } else if (res.equals("FAIL")) {
-                serverReply = String.format(
-                    "FAILED Inserting KEY='%s' VAL='%s'.", proposedVal.getKey(), proposedVal.getVal());
-                logLevel = Level.SEVERE;
-                LOGGER.warning(String.format(
-                    "FAILED PUT request of ('%s', '%s') from %s.", 
-                    proposedVal.getKey(),
-                    proposedVal.getVal(),
-                    client));
-            }
+        if (res.equals("success")) {
+            serverReply = "success";
+            logLevel = Level.INFO;
+        } else {
+            serverReply = "fail";
         }
         return new Response(logLevel, serverReply);
     }
