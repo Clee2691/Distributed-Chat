@@ -317,6 +317,26 @@ public class ClientGUI {
       String.format("[%s] %s: %s\n", formattedTime, sender, message));
   }
 
+  /**
+   * The action performed when the send button is pressed.
+   * Must be a message of at least length 1.
+   */
+  public void sendNewMessage() {
+    String newMessage = chatroomNewMessageField.getText();
+    // Reset the text in the field
+    chatroomNewMessageField.setText("");
+    
+    if (newMessage.length() == 0) {
+      openPopUp("Message cannot be empty!");
+    } else {
+      try {
+        client.sendMessage(Instant.now(), myUsername, currChatRoom, newMessage);
+      } catch (RemoteException re) {
+        LOGGER.severe("Error sending message!");
+      }
+    }
+  }
+
   // ===============================================
 
   //            Chat Screen Methods
@@ -454,27 +474,6 @@ public class ClientGUI {
     }
   }
 
-  /**
-   * The action performed when the send button is pressed.
-   * Must be a message of at least length 1.
-   */
-  public void sendNewMessage() {
-    String newMessage = chatroomNewMessageField.getText();
-    // Reset the text in the field
-    chatroomNewMessageField.setText("");
-    
-    if (newMessage.length() == 0) {
-      openPopUp("Message cannot be empty!");
-    } else {
-      try {
-        client.sendMessage(Instant.now(), myUsername, currChatRoom, newMessage);
-      } catch (RemoteException re) {
-        LOGGER.severe("Error sending message!");
-      }
-    }
-  }
-
-  
   // ==============================================
 
   //     Methods to Make/Open Different Screens
@@ -510,9 +509,6 @@ public class ClientGUI {
     this.chatroomTextArea = new JTextArea(10, 30);
     this.chatroomScrollPane = new JScrollPane(this.chatroomTextArea);
     this.chatroomTextArea.setEditable(false);
-    // smart scroller ensures that display shows most recent messages by default, and it also ensures
-    // that a new message will not force the screen to move to the bottom if the user has scrolled
-    // up and is looking at older messages.
     new SmartScroller(this.chatroomScrollPane);
     gbc.gridwidth = 2;
     gbc.insets = new Insets(0, 0, 10, 0);
