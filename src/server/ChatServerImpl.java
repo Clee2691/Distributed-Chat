@@ -16,6 +16,8 @@ import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.Registry;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 // Java Imports
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -136,46 +138,62 @@ public class ChatServerImpl implements ChatServerInterface {
         return new Response(Level.SEVERE, "fail");
     }
 
+    @Override
+    public String logOutUser(String user) {
+        // Remove from all rooms
+        // Just a final cleanup if something was wrong
+        for (Map.Entry<String, List<String>> roomUsers: this.chatRoomUsers.entrySet()) {
+            if (roomUsers.getValue().size() > 0) {
+              roomUsers.getValue().remove(user);
+            }
+          }
+        return "success";
+    }
+
     // ======================================
 
     //        Create/ Join a Chat Room
 
     // =======================================
 
+    @Override
     public String createChatRoom(String chatName, String user) throws RemoteException {        
         if (this.chatRoomUsers.containsKey(chatName)) {
             return "exists";
         }
+
         // Make a new chat room and put in the user who made the room
         ArrayList<String> userList = new ArrayList<String>();
         userList.add(user);
         this.chatRoomUsers.put(chatName, userList);
+
+        // Start the chatroom's history
+        ArrayList<String> messages = new ArrayList<String>();
+        this.chatRoomHistory.put(chatName, messages);
+
         return "success";
     }
 
+    @Override
     public String joinChatRoom(String chatName, String user) {
-        // Add user to the room if it contains the key
+        // Add user to the room if it contains the key (Room exists)
         if (this.chatRoomUsers.containsKey(chatName)) {
             this.chatRoomUsers.get(chatName).add(user);
-            // Broadcast to everyone in the chatroom that a user has joined
-            List<String> currRoomUsers = this.chatRoomUsers.get(chatName);
-            for (String name : currRoomUsers) {
-                if (name.equals(user)){
-                    continue;
-                }
-                try {
-                    // Look up the client in the registry and call its displayMessage remote method
-                    ClientInterface client = (ClientInterface)remoteReg.lookup(String.format("client:%s", name));
-                    client.displayUserJoinLeave(Instant.now(), user, "joined");
-                    LOGGER.info(String.format("User: %s joined chatroom: %s.", user, chatName));
-                } catch (NotBoundException nbe) {
-                    LOGGER.severe(String.format("User: %s is no longer connected. Not bound to registry.", name));
-                } catch (RemoteException re) {
-                    LOGGER.severe(String.format("Error accessing the remote: %s.", name));
-                }
-            }
             return "success";
         }
+        return "fail";
+    }
+
+    @Override
+    public String leaveChatRoom(String chatname, String user) {
+        if (!this.chatRoomUsers.containsKey(chatname)){
+            return "fail";
+        }
+        // Attempt to remove the user
+        if (this.chatRoomUsers.get(chatname).remove(user)) {
+            return "success";
+        }
+
         return "fail";
     }
 
@@ -185,11 +203,20 @@ public class ChatServerImpl implements ChatServerInterface {
 
     // ========================================================
 
+    @Override
     public void broadCastMessage(Instant timeStamp, String user, String chatroom, String message) {
         // If the room is not available just return. Nothing to do
         if (!this.chatRoomUsers.containsKey(chatroom)) {
             return;
         }
+        // Format the timeStamp
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+        .withZone(ZoneId.systemDefault());
+
+        String formattedTime = formatter.format(timeStamp);
+        // Add it to the room's message history
+        this.chatRoomHistory.get(chatroom).add(
+            String.format("[%s] %s: %s", formattedTime, user, message));
 
         // Iterate through all clients currently connected to room on the server.
         List<String> currRoomUsers = this.chatRoomUsers.get(chatroom);
@@ -207,29 +234,48 @@ public class ChatServerImpl implements ChatServerInterface {
         }
     }
 
-    public void notifyJoinLeave(Instant timeStamp, String user, String chatroom, String joinLeave) {
-        
+    @Override
+    public void notifyJoinLeave(String chatroom, String user) {
+        // Iterate through all clients currently connected to room on the server.
+        List<String> currRoomUsers = this.chatRoomUsers.get(chatroom);
+        for (String name : currRoomUsers) {
+            try {
+                // Look up the client in the registry and call its displayMessage remote method
+                ClientInterface client = (ClientInterface)remoteReg.lookup(String.format("client:%s", name));
+                client.notifyJoinLeave();
+                LOGGER.info(String.format("Notified %s of %s", chatroom, user));
+            } catch (NotBoundException nbe) {
+                LOGGER.severe(String.format("User: %s is no longer connected. Not bound to registry.", name));
+            } catch (RemoteException re) {
+                LOGGER.severe(String.format("Error accessing the remote: %s.", name));
+            }
+        }
     }
 
-
-    public Map<String,Integer> getChatRoomInformation() {
-        Map<String, Integer> roomsAndUsers = new HashMap<String, Integer>();
+    @Override
+    public Map<String, List<String>> getChatRoomInformation() {
 
         if (this.chatRoomUsers.isEmpty()) {
             return null;
         }
 
-        for (Map.Entry<String, List<String>> roomUsers : this.chatRoomUsers.entrySet()) {
-            roomsAndUsers.put(roomUsers.getKey(), roomUsers.getValue().size());
-        }
-        return roomsAndUsers;
+        return this.chatRoomUsers;
     }
 
+    @Override
     public List<String> getChatUsers(String chatName) {
         if (!this.chatRoomUsers.containsKey(chatName)) {
             return null;
         }
         return this.chatRoomUsers.get(chatName);
+    }
+
+    @Override
+    public List<String> getChatRoomMessageHistory(String chatName) {
+        if (this.chatRoomHistory.containsKey(chatName)) {
+            return this.chatRoomHistory.get(chatName);
+        }
+        return null;
     }
 
     // =========================

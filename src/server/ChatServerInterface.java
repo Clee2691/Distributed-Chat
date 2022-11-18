@@ -7,6 +7,7 @@ import java.net.SocketTimeoutException;
 import java.rmi.Remote;
 import java.rmi.RemoteException;
 import java.time.Instant;
+import java.util.ArrayList;
 // Java Imports
 import java.util.List;
 import java.util.Map;
@@ -43,6 +44,14 @@ public interface ChatServerInterface extends Remote{
      */
     Response loginUser(String username, String password) throws RemoteException;
 
+    /**
+     * Remove the user from the registry since they are logging out
+     * @param user
+     * @return
+     * @throws RemoteException
+     */
+    String logOutUser(String user) throws RemoteException;
+
     // ====================================
 
     //     Chat Server Creation/Join
@@ -68,6 +77,15 @@ public interface ChatServerInterface extends Remote{
     String joinChatRoom(String chatName, String user) throws RemoteException;
 
     /**
+     * Remove the specified user from the specified room
+     * @param chatname The name of the chat room
+     * @param user The user to remove
+     * @return
+     * @throws RemoteException
+     */
+    String leaveChatRoom(String chatname, String user) throws RemoteException;
+
+    /**
      * Allow the server to broadcast a message to other users in the room.
      * This is group communication
      * @param user The user that sent a message to be broadcast
@@ -78,14 +96,12 @@ public interface ChatServerInterface extends Remote{
     void broadCastMessage(Instant timeStamp, String user, String chatroom, String message) throws RemoteException;
 
     /**
-     * Notify the server to broadcast the joining or leaving of a user in the chatroom
-     * @param timeStamp
-     * @param user
-     * @param chatroom
-     * @param joinLeave
+     * Notify other clients that the user left or joined the specified chatroom
+     * @param chatroom The chatroom
+     * @param user The user
      * @throws RemoteException
      */
-    void notifyJoinLeave(Instant timeStamp, String user, String chatroom, String joinLeave) throws RemoteException;
+    void notifyJoinLeave(String chatroom, String user) throws RemoteException;
 
     // ====================================
 
@@ -95,10 +111,10 @@ public interface ChatServerInterface extends Remote{
 
     /**
      * Get the current active chatrooms and the number of users in them.
-     * @return Map of room names and the current number of users
+     * @return Map of room names and their users
      * @throws RemoteException
      */
-    Map<String,Integer> getChatRoomInformation() throws RemoteException;
+    Map<String, List<String>> getChatRoomInformation() throws RemoteException;
 
     /**
      * Get the users within the specified chat room
@@ -107,6 +123,23 @@ public interface ChatServerInterface extends Remote{
      * @throws RemoteException
      */
     List<String> getChatUsers(String chatName) throws RemoteException;
+
+    /**
+     * Get the current chatroom's message history
+     * @param chatName The chatroom
+     * @return List of the chat room messages
+     * @throws RemoteException
+     */
+    List<String> getChatRoomMessageHistory(String chatName) throws RemoteException;
+
+
+
+
+
+
+
+
+
 
     /**
      * Sets the server information to keep all server replicas connected

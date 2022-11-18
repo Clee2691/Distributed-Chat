@@ -17,10 +17,11 @@ public interface ClientInterface extends Remote {
     void displayMessage(Instant timeStamp, String sender, String message) throws RemoteException;
 
     /**
-     * Notify that a user has joined or left
+     * Notify self that a user has joined or left the chatroom
+     * The server calls this function whenever a person joins or leaves a chatroom
      * @param timeStamp The time stamp of joining or leaving
      * @param user The user that joined or left
      * @throws RemoteException
      */
-    void displayUserJoinLeave(Instant timeStamp, String user, String action) throws RemoteException;
+    void notifyJoinLeave() throws RemoteException;
 }
