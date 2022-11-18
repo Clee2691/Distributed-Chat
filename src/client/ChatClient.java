@@ -106,10 +106,11 @@ public class ChatClient implements ClientInterface {
     // ======================================
 
     /**
-     * 
-     * @param user
-     * @param pw
-     * @return
+     * Register the user with the specified user and password.
+     * Connects this client object to the registry by registering it.
+     * @param user The username
+     * @param pw The password
+     * @return Response object whether it was successful or not
      * @throws RemoteException
      */
     public Response registerUser(String user, String pw) throws RemoteException {
@@ -180,6 +181,7 @@ public class ChatClient implements ClientInterface {
 
     /**
      * Call server's remote method to get the currently active rooms and the number of users in them
+     * @param chatName The chatroom's name
      * @return Map of rooms and the list of users in each room
      */
     public List<String> getChatRoomHistory(String chatName) throws RemoteException {
@@ -188,7 +190,7 @@ public class ChatClient implements ClientInterface {
 
     // ======================================
 
-    //        Chat Remote Methods
+    //      Chat Sever Remote Method Calls
 
     // ======================================
 
@@ -237,6 +239,12 @@ public class ChatClient implements ClientInterface {
         this.chatStub.broadCastMessage(timeStamp, user, chatRoom, message);
     }
 
+    /**
+     * Notify other clients of joining or leaving. Call the server remote method.
+     * @param chatname The chat room user joined or left
+     * @param user The user joining or leaving
+     * @throws RemoteException
+     */
     public void notifyOthersJoinLeave(String chatname, String user) throws RemoteException {
         this.chatStub.notifyJoinLeave(chatname, user);
     }
@@ -259,17 +267,39 @@ public class ChatClient implements ClientInterface {
     }
 
     /**
+     * Parse port arguments for the server replicas
+     * I want 5 replicas at least
+     * @param args
+     */
+    private static void checkArgs(String[] args) {
+        if (args.length < 2) {
+            LOGGER.severe("Invalid usage, you must have a host and port!");
+            System.exit(1);
+        }
+        int currPort = Integer.parseInt(args[1]);
+        if (currPort <= 1000 && currPort >= 65535) {
+            LOGGER.severe("Port must be in Range: 1000-65535!");
+            System.exit(1);
+        }
+    }
+
+    /**
      * Driver for the client
      * @param args
      */
     public static void main(String[] args) {
+        checkArgs(args);
+
+        String host = args[0];
+        int port = Integer.parseInt(args[1]);
+
+        
         ChatClient chatClient = new ChatClient();
 
         // Locate the remote stub for the chat server (Using localhost:5555) for now
         try {
-            //TODO: CHANGE LOCALHOST/PORT TO BE USER INPUTS
             // Get a reference to the remote registry object on the specified host
-            chatClient.setRemoteReg(LocateRegistry.getRegistry("localhost", 5555));
+            chatClient.setRemoteReg(LocateRegistry.getRegistry(host, port));
 
         } catch (RemoteException re) {
             LOGGER.severe(re.toString());

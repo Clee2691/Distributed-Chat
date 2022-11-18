@@ -4,9 +4,6 @@ package server;
 import java.util.logging.Level;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
-
-import client.ClientInterface;
-
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
@@ -15,12 +12,14 @@ import java.net.SocketTimeoutException;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.Registry;
+
+// Time Imports
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+
 // Java Imports
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -31,6 +30,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import paxos.Acceptor;
 import paxos.Learner;
 import paxos.Proposer;
+
+// Custom Imports
+import client.ClientInterface;
 
 /**
  * Class implementing the ChatServerInterface
@@ -87,11 +89,13 @@ public class ChatServerImpl implements ChatServerInterface {
 
     }
 
+    // Set the registry for this server
     public void setRegistry(Registry currReg) {
         this.remoteReg = currReg;
     }
 
-    public Registry geRegistry() {
+    // Get the registry for this server
+    public Registry getRegistry() {
         return this.remoteReg;
     }
 
@@ -276,43 +280,6 @@ public class ChatServerImpl implements ChatServerInterface {
             return this.chatRoomHistory.get(chatName);
         }
         return null;
-    }
-
-    // =========================
-    // Key Value Store Functions
-    // =========================
-
-    /**
-     * Get the server store
-     * @return The server's store
-     */
-    public Map<String,String> getUserStore() {
-        return this.userDatabase;
-    }
-
-    /**
-     * Get the associated value from a key
-     * @param key a key to query the store
-     * @return The value or null if not found.
-     */
-    public String getRequest(String key) throws InterruptedException {
-        synchronized(userDatabase){
-            if (userDatabase.containsKey(key)) {
-                return userDatabase.get(key);
-            }
-            return null;
-        }
-    }
-
-    /**
-     * Get if store is empty
-     * @return True if empty, false if not empty
-     */
-    public boolean isEmpty() {
-        if (userDatabase.isEmpty()) {
-            return true;
-        }
-        return false;
     }
     
 

@@ -7,11 +7,10 @@ import java.net.SocketTimeoutException;
 import java.rmi.Remote;
 import java.rmi.RemoteException;
 import java.time.Instant;
-import java.util.ArrayList;
+
 // Java Imports
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * The Key Value Store Remote Interface for RMI
@@ -131,14 +130,6 @@ public interface ChatServerInterface extends Remote{
      * @throws RemoteException
      */
     List<String> getChatRoomMessageHistory(String chatName) throws RemoteException;
-
-
-
-
-
-
-
-
 
 
     /**
