@@ -5,7 +5,6 @@ import java.util.logging.LogManager;
 import java.util.logging.Logger;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.rmi.registry.Registry;
 import java.util.ArrayList;
 import java.util.List;
 // Java Imports
@@ -17,7 +16,7 @@ import server.DBOperation;
 
 /**
  * Learner class that serves as the replication factor. This class is the one
- * that executes and commits the actual request.
+ * that executes and commits the actual requests.
  */
 public class Learner extends Thread {
     // Set up logging with a custom properties file
@@ -38,16 +37,19 @@ public class Learner extends Thread {
     }
 
     /**
-     * The commit method that manipulates the key value store.
-     * @param store The store in the server
-     * @param dbOp The operation
-     * @return Resulting message
+     * The commit method that manipulates the data store
+     * @param propId The current proposal ID
+     * @param userStore The user stored database
+     * @param chatRoomUsers The chatroom and its users
+     * @param chatRoomHistory The chatroom's history
+     * @param activeUsers Currently active users
+     * @param dbOp The operation to commit
+     * @return success or failure string
      */
     public synchronized String commit(int propId, Map<String,String> userStore, 
                                         Map<String, List<String>> chatRoomUsers,
                                         Map<String, List<String>> chatRoomHistory,
                                         List<String> activeUsers,
-                                        Registry remoteReg,
                                         DBOperation dbOp) {
         acceptedVals.put(propId, dbOp);
 

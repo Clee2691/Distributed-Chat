@@ -116,7 +116,6 @@ public class ChatServerImpl implements ChatServerInterface {
 
     public void setServers(List<Integer> otherPorts, int port) {
         this.proposer.setPorts(otherPorts);
-        this.acceptor.setServerPort(port);
     }
 
     // =========================
@@ -138,11 +137,11 @@ public class ChatServerImpl implements ChatServerInterface {
             return this.proposer.propose("register", username, password, "", "");
         });
         
+        // Get the final result and send to client if it was successful or not
         try {
             Response res = future.get();
             if (res.getServerReply().equals("success")) {
                 LOGGER.info(String.format("Successfully registered user with username: %s.", username));
-                // Add to list of active users
                 return new Response(Level.INFO, "success");
             }
             return new Response(Level.INFO, "Error registering. Try again.");
@@ -162,6 +161,7 @@ public class ChatServerImpl implements ChatServerInterface {
             return new Response(Level.SEVERE, "incorrect");
         }
 
+        // Check to see if user is in the active user list
         for (String user : loggedInUsers) {
             if (user.equals(username)) {
                 return new Response(Level.SEVERE, "loggedIn");
@@ -171,7 +171,7 @@ public class ChatServerImpl implements ChatServerInterface {
         // Check password against entered password
         String dbPass = userDatabase.get(username);
         if (password.equals(dbPass)) {
-            // Start paxos for registering
+            // Start paxos for logging in
             Future<Response> future = executorService.submit(() -> {
                 return this.proposer.propose("login", username, password, "", "");
             });
@@ -323,9 +323,12 @@ public class ChatServerImpl implements ChatServerInterface {
         .withZone(ZoneId.systemDefault());
 
         String formattedTime = formatter.format(timeStamp);
+
+        // The message
         String finalMessage = String.format("[%s] %s: %s", formattedTime, user, message);
 
-        // Start paxos for leaving a chatroom
+        // Start paxos for broadcasting a message to a room.
+        // Keeps the chat room history in consensus for all replicas
         Future<Response> future = executorService.submit(() -> {
             return this.proposer.propose("send", user, "", finalMessage, chatroom);
         });
@@ -425,6 +428,6 @@ public class ChatServerImpl implements ChatServerInterface {
 
     @Override
     public String commit(int propId, DBOperation dbOp) {
-        return this.learner.commit(propId, userDatabase, chatRoomUsers, chatRoomHistory, loggedInUsers, remoteReg, dbOp);
+        return this.learner.commit(propId, userDatabase, chatRoomUsers, chatRoomHistory, loggedInUsers, dbOp);
     }
 }

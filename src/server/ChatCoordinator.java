@@ -26,7 +26,7 @@ public class ChatCoordinator {
     //          Logging Setup
 
     // ===============================
-    static Logger LOGGER = Logger.getLogger(KVCoordinator.class.getName());
+    static Logger LOGGER = Logger.getLogger(ChatCoordinator.class.getName());
     static {
         String filePath = "../config/serverlogging.properties";
         try {

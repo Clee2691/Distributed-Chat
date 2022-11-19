@@ -46,7 +46,7 @@ public interface ChatServerInterface extends Remote{
     /**
      * Remove the user from the registry since they are logging out
      * @param user
-     * @return
+     * @return String success or failure
      * @throws RemoteException
      */
     String logOutUser(String user) throws RemoteException;
@@ -79,14 +79,22 @@ public interface ChatServerInterface extends Remote{
      * Remove the specified user from the specified room
      * @param chatname The name of the chat room
      * @param user The user to remove
-     * @return
+     * @return String indicating success or fail
      * @throws RemoteException
      */
     String leaveChatRoom(String chatname, String user) throws RemoteException;
 
+    // ====================================
+
+    //              Messaging
+    
+    // ====================================
+
+
     /**
      * Allow the server to broadcast a message to other users in the room.
      * This is group communication
+     * @param timeStamp The time stamp of the message
      * @param user The user that sent a message to be broadcast
      * @param chatroom The chatroom name. Wherever the user is located.
      * @param message The message to broadcast.
@@ -104,7 +112,7 @@ public interface ChatServerInterface extends Remote{
 
     // ====================================
 
-    //      Server information
+    //          Server information
     
     // ====================================
 
@@ -135,6 +143,7 @@ public interface ChatServerInterface extends Remote{
     /**
      * Sets the server information to keep all server replicas connected
      * @param otherServers List of other server ports.
+     * @param port The server's port
      * @throws RemoteException
      */
     void setServers(List<Integer> otherServers, int port) throws RemoteException;
@@ -159,7 +168,7 @@ public interface ChatServerInterface extends Remote{
      * Send a request to accept the proposal to the acceptor
      * @param propId The proposal ID
      * @param val The proposed value
-     * @return The KVOperation value that the acceptor accepts or null
+     * @return The DBOperation value that the acceptor accepts or null
      * @throws RemoteException
      * @throws SocketTimeoutException
      */

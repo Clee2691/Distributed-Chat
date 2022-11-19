@@ -12,11 +12,11 @@ import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
-import java.time.Instant;
 
 // Java Imports
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
 
 // Custom Imports
 import gui.ClientGUI;
@@ -256,19 +256,21 @@ public class ChatClient implements ClientInterface {
 
     // ======================================
 
+    @Override
     public void displayMessage(String sender, String message) {
         this.theGUI.displayNewMessage(sender, message);
         LOGGER.info(message);
     }
 
+    @Override
     public void notifyJoinLeave() {
         // Update room list
         this.theGUI.updateRoomMemberList();
     }
 
     /**
-     * Parse port arguments for the server replicas
-     * I want 5 replicas at least
+     * Parse port arguments for client
+     * Must have a host and a port
      * @param args
      */
     private static void checkArgs(String[] args) {
@@ -296,7 +298,7 @@ public class ChatClient implements ClientInterface {
         
         ChatClient chatClient = new ChatClient();
 
-        // Locate the remote stub for the chat server (Using localhost:5555) for now
+        // Locate the remote stub for the chat server for now
         try {
             // Get a reference to the remote registry object on the specified host
             chatClient.setRemoteReg(LocateRegistry.getRegistry(host, port));
@@ -307,7 +309,6 @@ public class ChatClient implements ClientInterface {
         } catch (NotBoundException nbe) {
             LOGGER.severe("Registry name not found!");
         }
-
         // Set the GUI for the client
         ClientGUI cGUI = new ClientGUI(chatClient);
         chatClient.setGUI(cGUI);

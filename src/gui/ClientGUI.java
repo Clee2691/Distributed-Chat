@@ -73,7 +73,6 @@ public class ClientGUI {
   public JButton createChatButton;
   public JButton logoutButton;
  
-
   // Components in the Chat room screen
   public String chatroomName;
   public JLabel chatroomLabel;

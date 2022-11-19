@@ -30,10 +30,6 @@ public class DBOperation implements Serializable {
         this.chatroom = chatroom;
     }
 
-    /**
-     * Get the operation.
-     * @return String operation.
-     */
     public String getOp() {
         return this.op;
     }
@@ -42,10 +38,6 @@ public class DBOperation implements Serializable {
         this.op = op;
     }
 
-    /**
-     * Get the key.
-     * @return String key.
-     */
     public String getUsername() {
         return this.username;
     }
@@ -54,10 +46,6 @@ public class DBOperation implements Serializable {
         this.username = username;
     }
 
-    /**
-     * Get the value.
-     * @return String value.
-     */
     public String getPassword() {
         return this.password;
     }

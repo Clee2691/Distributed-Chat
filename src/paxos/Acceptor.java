@@ -9,9 +9,6 @@ import java.io.IOException;
 // Custom Imports
 import server.DBOperation;
 
-// Java Imports
-import java.util.Random;
-
 public class Acceptor extends Thread {
     // Set up logging with a custom properties file
     static Logger LOGGER = Logger.getLogger(Acceptor.class.getName());
@@ -26,11 +23,8 @@ public class Acceptor extends Thread {
 
     private int prevProposalId;
     private int prevAcceptedId;
-    private int serverPort;
     
     private DBOperation prevVal;
-
-    Random rand = new Random();
 
     public void setPrevProposalId(int pId) {
         this.prevProposalId = pId;
@@ -50,10 +44,6 @@ public class Acceptor extends Thread {
 
     public void setDBOp(DBOperation dbOp) {
         this.prevVal = dbOp;
-    }
-
-    public void setServerPort(int port) {
-        this.serverPort = port;
     }
     
     public DBOperation getDBOp() {
