@@ -5,9 +5,12 @@ import java.util.logging.LogManager;
 import java.util.logging.Logger;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.rmi.registry.Registry;
+import java.util.ArrayList;
 import java.util.List;
 // Java Imports
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 // Custom Imports
 import server.DBOperation;
@@ -28,27 +31,71 @@ public class Learner extends Thread {
         }
     }
 
+    private Map<Integer, DBOperation> acceptedVals;
+
+    public Learner() {
+        this.acceptedVals = new ConcurrentHashMap<Integer, DBOperation>();
+    }
+
     /**
      * The commit method that manipulates the key value store.
      * @param store The store in the server
      * @param dbOp The operation
      * @return Resulting message
      */
-    public synchronized String commit(Map<String,String> userStore, 
+    public synchronized String commit(int propId, Map<String,String> userStore, 
                                         Map<String, List<String>> chatRoomUsers,
-                                        Map<String, List<String>> chatRoomHistory, 
+                                        Map<String, List<String>> chatRoomHistory,
+                                        List<String> activeUsers,
+                                        Registry remoteReg,
                                         DBOperation dbOp) {
+        acceptedVals.put(propId, dbOp);
 
+        // Commit the specified operation
         if (dbOp.getOp().equals("register")){
             userStore.put(dbOp.getUsername(), dbOp.getPassword());
+            activeUsers.add(dbOp.getUsername());
             return "success";
-        } else if (dbOp.getOp().equals("create")) {
-            
-        } else if (dbOp.getOp().equals("join")) {
-            
-        } else if (dbOp.getOp().equals("send")) {
 
-        } else {
+        } else if (dbOp.getOp().equals("login")){
+            activeUsers.add(dbOp.getUsername());
+            return "success";
+
+        } else if (dbOp.getOp().equals("logout")){
+            for (Map.Entry<String, List<String>> roomUsers: chatRoomUsers.entrySet()) {
+                if (roomUsers.getValue().size() > 0) {
+                  roomUsers.getValue().remove(dbOp.getUsername());
+                }
+            }
+            activeUsers.remove(dbOp.getUsername());
+            return "success";
+
+        } else if (dbOp.getOp().equals("create")) {
+            // Initialize the room history and room users
+            List<String> chatUsers = new ArrayList<String>();
+            chatUsers.add(dbOp.getUsername());
+            List<String> chatHistory = new ArrayList<String>();
+
+            chatRoomUsers.put(dbOp.getChatroom(), chatUsers);
+            chatRoomHistory.put(dbOp.getChatroom(), chatHistory);
+            return "success";
+        } else if (dbOp.getOp().equals("join")) {
+                    // Add user to the room if it contains the key (Room exists)
+            if (chatRoomUsers.containsKey(dbOp.getChatroom())) {
+                chatRoomUsers.get(dbOp.getChatroom()).add(dbOp.getUsername());
+                return "success";
+            }
+            return "fail";
+        } else if (dbOp.getOp().equals("send")) {
+            // Add it to the room's message history
+            chatRoomHistory.get(dbOp.getChatroom()).add(dbOp.getMessage());
+
+            return "success";
+        } else if (dbOp.getOp().equals("leave")){
+            // Attempt to remove the user
+            if (chatRoomUsers.get(dbOp.getChatroom()).remove(dbOp.getUsername())) {
+                return "success";
+            }
             return "fail";
         }
 

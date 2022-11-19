@@ -20,8 +20,6 @@ import java.util.Map;
 
 // Java Time
 import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 
 // Custom Imports
 import client.ChatClient;
@@ -128,9 +126,12 @@ public class ClientGUI {
         } else if (res.getServerReply().equalsIgnoreCase("incorrect")) {
           openPopUp("Incorrect username/password!");
           LOGGER.severe("FAIL: Incorrect username/password.");
-        } else {
+        } else if (res.getServerReply().equals("loggedIn")) {
           openPopUp("This user already logged in!");
           LOGGER.severe("FAIL: Already logged in.");
+        } else {
+          openPopUp("Failed logging in. Try again!");
+          LOGGER.severe("FAIL: Unknown error.");
         }
       } catch (RemoteException re) {
         LOGGER.severe(re.toString());
@@ -307,14 +308,9 @@ public class ClientGUI {
    * @param sender The sender of the message
    * @param message The message that was sent
    */
-  public void displayNewMessage(Instant timeStamp, String sender, String message) {
+  public void displayNewMessage(String sender, String message) {
 
-    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm:ss")
-            .withZone(ZoneId.systemDefault());
-
-    String formattedTime = formatter.format(timeStamp);
-    this.chatroomTextArea.append(
-      String.format("[%s] %s: %s\n", formattedTime, sender, message));
+    this.chatroomTextArea.append(message + "\n");
   }
 
   /**

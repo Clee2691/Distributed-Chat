@@ -171,5 +171,5 @@ public interface ChatServerInterface extends Remote{
      * @return String that is the result of the request.
      * @throws RemoteException
      */
-    String commit(DBOperation theVal) throws RemoteException;
+    String commit(int propId, DBOperation theVal) throws RemoteException;
 }

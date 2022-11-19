@@ -24,11 +24,6 @@ import server.ChatServerInterface;
 import server.Response;
 
 public class ChatClient implements ClientInterface {
-
-    //TODO: Once connected to one server, keep a list of all connected servers
-    //TODO: If there is a remote exception or not bound error, try to find another server to connect
-    // TODO: I.e rebind to a different remote registry on a different port
-
     /**
      * Logging support that loads a custom logging properties file.
      */
@@ -123,6 +118,7 @@ public class ChatClient implements ClientInterface {
         if (serverResp.getServerReply().equals("success")) {
             ClientInterface clientStub = (ClientInterface)UnicastRemoteObject.exportObject(this, 0);
             remoteReg.rebind(String.format("client:%s", user), clientStub);
+            LOGGER.info("Successfully registered.");
         }
         
         return serverResp;
@@ -260,8 +256,8 @@ public class ChatClient implements ClientInterface {
 
     // ======================================
 
-    public void displayMessage(Instant timeStamp, String sender, String message) {
-        this.theGUI.displayNewMessage(timeStamp, sender, message);
+    public void displayMessage(String sender, String message) {
+        this.theGUI.displayNewMessage(sender, message);
         LOGGER.info(message);
     }
 

@@ -48,15 +48,15 @@ public class Acceptor extends Thread {
         return this.prevProposalId;
     }
 
-    public void setKVOp(DBOperation kvOp) {
-        this.prevVal = kvOp;
+    public void setDBOp(DBOperation dbOp) {
+        this.prevVal = dbOp;
     }
 
     public void setServerPort(int port) {
         this.serverPort = port;
     }
     
-    public DBOperation getKVOp() {
+    public DBOperation getDBOp() {
         return this.prevVal;
     }
 
@@ -96,7 +96,7 @@ public class Acceptor extends Thread {
         // This keeps track of most recently received proposal ID
         // ONLY if it is greater than the previous proposal ID.
         setPrevAcceptedId(prop);
-        setKVOp(val);
+        setDBOp(val);
 
         // Send the acceptance back to the proposer
         return prevVal;

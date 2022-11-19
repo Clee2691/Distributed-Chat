@@ -3,7 +3,6 @@ package client;
 // RMI Imports
 import java.rmi.Remote;
 import java.rmi.RemoteException;
-import java.time.Instant;
 
 public interface ClientInterface extends Remote {
     
@@ -14,7 +13,7 @@ public interface ClientInterface extends Remote {
      * @param message The message to display
      * @throws RemoteException
      */
-    void displayMessage(Instant timeStamp, String sender, String message) throws RemoteException;
+    void displayMessage(String sender, String message) throws RemoteException;
 
     /**
      * Notify self that a user has joined or left the chatroom

@@ -6,7 +6,6 @@ import java.util.logging.LogManager;
 import java.util.logging.Logger;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.net.SocketTimeoutException;
 
 // RMI Registry Imports
 import java.rmi.NotBoundException;
@@ -25,6 +24,10 @@ import java.util.Map;
 
 // Threading support
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 // Paxos Specific
 import paxos.Acceptor;
@@ -58,10 +61,13 @@ public class ChatServerImpl implements ChatServerInterface {
     private Acceptor acceptor;
     private Learner learner;
 
+    // Threading support
+    ExecutorService executorService;
+
     // User database
     // Should be a map of username : user stat object like their PW or if they are active
     private Map<String, String> userDatabase;
-
+    private List<String> loggedInUsers;
     // The rooms and associated users
     // Name of room : List of users in the room
     private Map<String, List<String>> chatRoomUsers;
@@ -79,6 +85,7 @@ public class ChatServerImpl implements ChatServerInterface {
         this.userDatabase = new ConcurrentHashMap<String, String>();
         this.chatRoomUsers = new ConcurrentHashMap<String, List<String>>();
         this.chatRoomHistory = new ConcurrentHashMap<String, List<String>>();
+        this.loggedInUsers = new ArrayList<String>();
 
         // Paxos proposer,acceptor,learner
         // Every server is it's own proposer, acceptor, and learner
@@ -86,7 +93,15 @@ public class ChatServerImpl implements ChatServerInterface {
         this.acceptor = new Acceptor();
         this.learner = new Learner();
 
+        executorService = Executors.newFixedThreadPool(50);
+
         this.port = p;
+
+        // Set some timeouts for RMI calls
+        // Only allow 1 second between calls
+        System.setProperty("sun.rmi.transport.tcp.responseTimeout", "1000");
+        System.setProperty("sun.rmi.dgc.ackTimeout", "1000");
+        System.setProperty("sun.rmi.transport.connectionTimeout", "1000");
     }
 
     // Set the registry for this server
@@ -111,34 +126,71 @@ public class ChatServerImpl implements ChatServerInterface {
     // =========================
 
     @Override
-    public synchronized Response registerUser(String username, String password) {
+    public Response registerUser(String username, String password) {
         // If username already in the store, user must choose a different username
         if (userDatabase.containsKey(username)) {
             String mess = String.format("Username: %s already exists!", username);
             LOGGER.severe(mess);
             return new Response(Level.SEVERE, mess);
         }
-        // Start paxos
-        Response res = this.proposer.propose("register", username, password, "", "");
-        if (res.getServerReply().equals("success")) {
-            LOGGER.info(String.format("Successfully registered user with username: %s.", username));
-            return new Response(Level.INFO, "success");
+        // Start paxos for registering
+        Future<Response> future = executorService.submit(() -> {
+            return this.proposer.propose("register", username, password, "", "");
+        });
+        
+        try {
+            Response res = future.get();
+            if (res.getServerReply().equals("success")) {
+                LOGGER.info(String.format("Successfully registered user with username: %s.", username));
+                // Add to list of active users
+                return new Response(Level.INFO, "success");
+            }
+            return new Response(Level.INFO, "Error registering. Try again.");
+        } catch (InterruptedException ie) {
+            LOGGER.severe("Error registering.");
+            return new Response(Level.INFO, "Server interrupted register. Try again.");
+        } catch (ExecutionException ee) {
+            LOGGER.severe("Error registering.");
+            return new Response(Level.INFO, "Error registering. Try again.");
         }
-        return new Response(Level.INFO, "fail");
-
     }
 
     @Override
-    public synchronized Response loginUser(String username, String password) {
-        // If username already in the store, user must choose a different username
+    public Response loginUser(String username, String password) {
+        // No username found
         if (!userDatabase.containsKey(username)) {
             return new Response(Level.SEVERE, "incorrect");
+        }
+
+        for (String user : loggedInUsers) {
+            if (user.equals(username)) {
+                return new Response(Level.SEVERE, "loggedIn");
+            }
         }
 
         // Check password against entered password
         String dbPass = userDatabase.get(username);
         if (password.equals(dbPass)) {
-            return new Response(Level.INFO, "success");
+            // Start paxos for registering
+            Future<Response> future = executorService.submit(() -> {
+                return this.proposer.propose("login", username, password, "", "");
+            });
+
+            try {
+                Response res = future.get();
+                if (res.getServerReply().equals("success")) {
+                    LOGGER.info(String.format("Successfully logged in user with username: %s.", username));
+                    return new Response(Level.INFO, "success");
+                }
+                return new Response(Level.INFO, "Error logging in. Try again.");
+            } catch (InterruptedException ie) {
+                LOGGER.severe("Error login.");
+                return new Response(Level.INFO, "Server interrupted login. Try again.");
+            } catch (ExecutionException ee) {
+                LOGGER.severe("Error login.");
+                return new Response(Level.INFO, "Error logging in. Try again.");
+            }
+
         } else if (!password.equals(dbPass)) {
             return new Response(Level.SEVERE, "incorrect");
         }
@@ -148,14 +200,25 @@ public class ChatServerImpl implements ChatServerInterface {
 
     @Override
     public String logOutUser(String user) {
-        // Remove from all rooms
-        // Just a final cleanup if something was wrong
-        for (Map.Entry<String, List<String>> roomUsers: this.chatRoomUsers.entrySet()) {
-            if (roomUsers.getValue().size() > 0) {
-              roomUsers.getValue().remove(user);
+        // Start paxos for logging out a user
+        Future<Response> future = executorService.submit(() -> {
+            return this.proposer.propose("logout", user, "", "", "");
+        });
+
+        try {
+            Response res = future.get();
+            if (res.getServerReply().equals("success")) {
+                LOGGER.info(String.format("Successfully logged out user with username: %s.", user));
+                return "success";
             }
-          }
-        return "success";
+            return "fail";
+        } catch (InterruptedException ie) {
+            LOGGER.severe("Error login.");
+            return "fail";
+        } catch (ExecutionException ee) {
+            LOGGER.severe("Error login.");
+            return "fail";
+        }
     }
 
     // ======================================
@@ -170,39 +233,76 @@ public class ChatServerImpl implements ChatServerInterface {
             return "exists";
         }
 
-        // Make a new chat room and put in the user who made the room
-        ArrayList<String> userList = new ArrayList<String>();
-        userList.add(user);
-        this.chatRoomUsers.put(chatName, userList);
+        // Start paxos for creating a chat room
+        Future<Response> future = executorService.submit(() -> {
+            return this.proposer.propose("create", user, "", "", chatName);
+        });
 
-        // Start the chatroom's history
-        ArrayList<String> messages = new ArrayList<String>();
-        this.chatRoomHistory.put(chatName, messages);
-
-        return "success";
+        try {
+            Response res = future.get();
+            if (res.getServerReply().equals("success")) {
+                LOGGER.info(String.format("Successfully created chatroom: %s.", chatName));
+                return "success";
+            }
+            return "fail";
+        } catch (InterruptedException ie) {
+            LOGGER.severe("Error creating chatroom.");
+            return "fail";
+        } catch (ExecutionException ee) {
+            LOGGER.severe("Error creating chatroom.");
+            return "fail";
+        }
     }
 
     @Override
     public String joinChatRoom(String chatName, String user) {
-        // Add user to the room if it contains the key (Room exists)
-        if (this.chatRoomUsers.containsKey(chatName)) {
-            this.chatRoomUsers.get(chatName).add(user);
-            return "success";
-        }
-        return "fail";
+        // Start paxos for joining a chat room
+        Future<Response> future = executorService.submit(() -> {
+            return this.proposer.propose("join", user, "", "", chatName);
+        });
+
+        try {
+            Response res = future.get();
+            if (res.getServerReply().equals("success")) {
+                LOGGER.info(String.format("Successfully joined chatroom: %s.", chatName));
+                return "success";
+            }
+            return "fail";
+        } catch (InterruptedException ie) {
+            LOGGER.severe("Error joining chatroom.");
+            return "fail";
+        } catch (ExecutionException ee) {
+            LOGGER.severe("Error joining chatroom.");
+            return "fail";
+        }   
     }
 
     @Override
-    public String leaveChatRoom(String chatname, String user) {
-        if (!this.chatRoomUsers.containsKey(chatname)){
+    public String leaveChatRoom(String chatName, String user) {
+        
+        if (!this.chatRoomUsers.containsKey(chatName)){
             return "fail";
         }
-        // Attempt to remove the user
-        if (this.chatRoomUsers.get(chatname).remove(user)) {
-            return "success";
-        }
 
-        return "fail";
+        // Start paxos for leaving a chatroom
+        Future<Response> future = executorService.submit(() -> {
+            return this.proposer.propose("leave", user, "", "", chatName);
+        });
+
+        try {
+            Response res = future.get();
+            if (res.getServerReply().equals("success")) {
+                LOGGER.info(String.format("Successfully left chatroom: %s.", chatName));
+                return "success";
+            }
+            return "fail";
+        } catch (InterruptedException ie) {
+            LOGGER.severe("Error leaving chatroom.");
+            return "fail";
+        } catch (ExecutionException ee) {
+            LOGGER.severe("Error leaving chatroom.");
+            return "fail";
+        } 
     }
 
     // =======================================================
@@ -217,14 +317,31 @@ public class ChatServerImpl implements ChatServerInterface {
         if (!this.chatRoomUsers.containsKey(chatroom)) {
             return;
         }
+
         // Format the timeStamp
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm:ss")
         .withZone(ZoneId.systemDefault());
 
         String formattedTime = formatter.format(timeStamp);
-        // Add it to the room's message history
-        this.chatRoomHistory.get(chatroom).add(
-            String.format("[%s] %s: %s", formattedTime, user, message));
+        String finalMessage = String.format("[%s] %s: %s", formattedTime, user, message);
+
+        // Start paxos for leaving a chatroom
+        Future<Response> future = executorService.submit(() -> {
+            return this.proposer.propose("send", user, "", finalMessage, chatroom);
+        });
+
+        try {
+            Response res = future.get();
+            if (res.getServerReply().equals("success")) {
+                LOGGER.info(String.format("Successfully sent %s to chatroom: %s.", finalMessage, chatroom));
+            } else {
+                return;
+            }
+        } catch (InterruptedException ie) {
+            LOGGER.severe("Error sending message to chatroom.");
+        } catch (ExecutionException ee) {
+            LOGGER.severe("Error sending message chatroom.");
+        } 
 
         // Iterate through all clients currently connected to room on the server.
         List<String> currRoomUsers = this.chatRoomUsers.get(chatroom);
@@ -232,7 +349,7 @@ public class ChatServerImpl implements ChatServerInterface {
             try {
                 // Look up the client in the registry and call its displayMessage remote method
                 ClientInterface client = (ClientInterface)remoteReg.lookup(String.format("client:%s", name));
-                client.displayMessage(timeStamp, user, message);
+                client.displayMessage(user, finalMessage);
                 LOGGER.info(String.format("User: %s broadcasted message to: %s in chatroom: %s", user, name, chatroom));
             } catch (NotBoundException nbe) {
                 LOGGER.severe(String.format("User: %s is no longer connected. Not bound to registry.", name));
@@ -307,8 +424,7 @@ public class ChatServerImpl implements ChatServerInterface {
     }
 
     @Override
-    public String commit(DBOperation dbOp) {
-        
-        return this.learner.commit(userDatabase, chatRoomUsers, chatRoomHistory, dbOp);
+    public String commit(int propId, DBOperation dbOp) {
+        return this.learner.commit(propId, userDatabase, chatRoomUsers, chatRoomHistory, loggedInUsers, remoteReg, dbOp);
     }
 }

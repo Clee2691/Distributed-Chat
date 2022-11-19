@@ -66,7 +66,7 @@ public class Proposer extends Thread {
      * @param val The value if operation is PUT
      * @return Response object with the server's reply
      */
-    public synchronized Response propose(String operation, String key, String val, String message, String chatroom) {
+    public Response propose(String operation, String key, String val, String message, String chatroom) {
         // On each propose, increment the proposal ID
         incrementPropID();
 
@@ -98,7 +98,7 @@ public class Proposer extends Thread {
                 "Consensus not reached for prepare. Aborted: %s",
                 proposedVal.getOp()));
         }
-
+        
         String res = "";
         // Check majority of servers accepted the proposal
         // If it did, then commit the action on all servers
@@ -149,6 +149,7 @@ public class Proposer extends Thread {
                         getPropId()));
                 }
             } catch (RemoteException e) {
+                LOGGER.severe(e.toString());
                 LOGGER.severe(
                     String.format(
                     "Remote exception for server port: %d!.",
@@ -230,7 +231,7 @@ public class Proposer extends Thread {
             try {
                 Registry reg = LocateRegistry.getRegistry(port);
                 ChatServerInterface chatStub = (ChatServerInterface) reg.lookup("chat");
-                res = chatStub.commit(proposedVal);
+                res = chatStub.commit(this.propId, proposedVal);
 
                 if (res.equals("fail")) {
                     LOGGER.severe(
