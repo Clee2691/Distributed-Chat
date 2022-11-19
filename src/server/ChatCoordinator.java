@@ -5,6 +5,9 @@ import java.util.List;
 // Logging imports
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
+
+import client.ClientInterface;
+
 import java.io.FileInputStream;
 import java.io.IOException;
 
@@ -15,6 +18,10 @@ import java.rmi.server.UnicastRemoteObject;
 import java.rmi.AccessException;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
+
+// Threading support
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Chat coordinator class
@@ -38,6 +45,11 @@ public class ChatCoordinator {
 
     private static List<Integer> serverPorts = new ArrayList<Integer>();
     private static List<ChatServerImpl> chatServers = new ArrayList<ChatServerImpl>();
+    private static int largestPropId = 0;
+    private static int currLeader = 0;
+
+    // Threading support
+    private static ExecutorService executorService = Executors.newFixedThreadPool(10);
 
     /**
      * Parse port arguments for the server replicas
@@ -61,12 +73,99 @@ public class ChatCoordinator {
     }
 
     /**
+     * Keep track of connected clients to the leader.
+     * Clean up dead clients from the server
+     */
+    private static void getLeaderConnClientsheartBeats() {
+        while (true) {
+            ChatServerImpl leaderServer = chatServers.get(currLeader);
+            List<String> connClients = leaderServer.getLoggedInUsers();
+            boolean isAlive = false;
+            if (connClients.size() > 0){
+                LOGGER.info("Checking for client heartbeats");
+                Registry remoteReg = leaderServer.getRegistry();
+                for (String client: connClients) {
+                    try {
+                        ClientInterface connClient = (ClientInterface)remoteReg.lookup(String.format("client:%s", client));
+                        isAlive = connClient.sendHeartBeat();
+                        if (isAlive) {
+                            LOGGER.info(String.format("Client: %s is still connected.", client));
+                        }
+                    } catch (RemoteException re) {
+                        LOGGER.severe(String.format("Remote Client: %s is dead!", client));
+                        leaderServer.cleanUpClients(client);
+                    } catch (NotBoundException nbe) {
+                        LOGGER.severe(String.format("Client name: %s is not bound!", client));
+                        leaderServer.cleanUpClients(client);
+                    }
+                }
+            } else {
+                LOGGER.info(String.format("No connected clients to server on port: %d",leaderServer.getPort()));
+            }
+            
+            try {
+                LOGGER.info("Sleeping client heartbeat sensor.");
+                Thread.sleep(2000);
+            } catch (InterruptedException ie) {
+                LOGGER.severe("Interrupted sleeping client heartbeat sensor");
+            }
+        } 
+    }
+
+    /**
+     * Keep track of which servers are down
+     * If the leader is down, elect a new one!
+     */
+    private static void getServerHeartBeats() {
+        while (true) {
+            boolean isAlive = false;
+            for (int i = 0; i < chatServers.size(); i++) {
+                ChatServerImpl currServer = chatServers.get(i);
+                if (i == currLeader) {
+                    // Keep track of highest proposed val so far in case
+                    // new leader is elected
+                    largestPropId = currServer.getProposer().getPropId();
+                }
+                
+                int serverPort = currServer.getPort();
+                try {
+                    Registry registry = LocateRegistry.getRegistry(serverPort);
+                    ChatServerInterface chatStub = (ChatServerInterface) registry.lookup("chat");
+                    isAlive = chatStub.sendHeartBeat();
+                    if (isAlive) {
+                        LOGGER.info(String.format("Server on port: %d is still alive!", serverPort));
+                    }
+                } catch (RemoteException re) {
+                    LOGGER.severe(String.format("Server on port: %d is dead!", serverPort));
+                    // TODO:ELECT A NEW LEADER!
+                    if (i == currLeader) {
+                        LOGGER.severe(String.format("Server leader on port: %d is down! Need to re-elect a leader", serverPort));
+                    }
+                } catch (NotBoundException nbe) {
+                    LOGGER.severe(String.format("Server on port: %d is not bound! Restart servers!", serverPort));
+                }
+            }
+    
+            try {
+                LOGGER.info("Sleeping server heartbeat sensor.");
+                Thread.sleep(5000);
+            } catch (InterruptedException ie) {
+                LOGGER.severe("Interrupted sleeping server heartbeat sensor");
+            }
+        }
+    }
+
+    /**
      * Driver for Chat Coordinator
      * @param args
      * @throws Exception
      */
-    public static void main(String[] args) throws Exception{
+    public static void main(String[] args) {
+        System.setProperty("sun.rmi.transport.tcp.responseTimeout", "1000");
+        System.setProperty("sun.rmi.dgc.ackTimeout", "1000");
+        System.setProperty("sun.rmi.transport.connectionTimeout", "1000");
         parseArgs(args);
+        
 
         // Make new servers with the ports by binding them to the registry
         for (int i = 0; i < serverPorts.size(); i++){
@@ -74,6 +173,13 @@ public class ChatCoordinator {
                 int currPort = serverPorts.get(i);
                 // Add a new chat server impl
                 chatServers.add(new ChatServerImpl(currPort));
+
+                // Set the first replica as the leader
+                if (i == 0) {
+                    chatServers.get(i).setIsLeader(true);
+                } else {
+                    chatServers.get(i).setIsLeader(false);
+                }
                 
                 // Stub the remote object
                 ChatServerInterface chatStub = (ChatServerInterface) UnicastRemoteObject.
@@ -97,6 +203,11 @@ public class ChatCoordinator {
                 LOGGER.severe("Remote exception occurred! Could not stub and bind registry! Servers failed to start!");
             }
         }
+
+        // Get any connected clients to the leader's heartbeat
+        executorService.submit(() -> {
+            getLeaderConnClientsheartBeats();
+        });
     }
 
     /**

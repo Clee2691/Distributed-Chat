@@ -23,7 +23,10 @@ import gui.ClientGUI;
 import server.ChatServerInterface;
 import server.Response;
 
+import java.util.Random;
+
 public class ChatClient implements ClientInterface {
+    //TODO: Check server's heartbeat, if it's down, attempt to cycle through servers to find the leader
     /**
      * Logging support that loads a custom logging properties file.
      */
@@ -50,6 +53,9 @@ public class ChatClient implements ClientInterface {
 
     // The remote registry server is connected to
     private Registry remoteReg;
+
+    //TODO: GET RID OF AFTER DONE
+    public Random rand = new Random();
 
     /**
      * Empty constructor
@@ -267,6 +273,27 @@ public class ChatClient implements ClientInterface {
         // Update room list
         this.theGUI.updateRoomMemberList();
     }
+
+    @Override
+    public boolean sendHeartBeat() {
+        // if (rand.nextInt(3) == 0) {
+        //     try {
+        //         LOGGER.info("Sleeping thread for 3 seconds.");
+        //         Thread.sleep(10000);
+
+        //     } catch (InterruptedException ie) {
+        //         LOGGER.severe("sleep interrupted");
+        //     }
+        // }
+        return true;
+    }
+
+
+    // ======================================
+
+    //         DRIVER OF CLIENT
+
+    // ======================================
 
     /**
      * Parse port arguments for client

@@ -139,7 +139,6 @@ public interface ChatServerInterface extends Remote{
      */
     List<String> getChatRoomMessageHistory(String chatName) throws RemoteException;
 
-
     /**
      * Sets the server information to keep all server replicas connected
      * @param otherServers List of other server ports.
@@ -147,6 +146,28 @@ public interface ChatServerInterface extends Remote{
      * @throws RemoteException
      */
     void setServers(List<Integer> otherServers, int port) throws RemoteException;
+
+    // ====================================
+
+    //          HouseKeeping
+    
+    // ====================================
+
+    /**
+     * Clean up any rouge clients that might have disconnected in unexpected way
+     * Called from the coordinator
+     * @param clientName
+     * @throws RemoteException
+     */
+    void cleanUpClients(String clientName) throws RemoteException;
+
+    /**
+     * Send a heart beat back to the coordinator to make sure the servers are alive
+     * @return True if alive
+     * @throws RemoteException
+     */
+    boolean sendHeartBeat() throws RemoteException;
+
 
     // ====================================
     

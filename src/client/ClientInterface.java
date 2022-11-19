@@ -23,4 +23,11 @@ public interface ClientInterface extends Remote {
      * @throws RemoteException
      */
     void notifyJoinLeave() throws RemoteException;
+
+    /**
+     * Send a heartbeat back to whoever called it.
+     * @return True if alive
+     * @throws RemoteException
+     */
+    boolean sendHeartBeat() throws RemoteException;
 }

@@ -55,6 +55,7 @@ public class ChatServerImpl implements ChatServerInterface {
     }
 
     private int port;
+    private boolean isLeader;
 
     // Paxos
     private Proposer proposer;
@@ -62,7 +63,7 @@ public class ChatServerImpl implements ChatServerInterface {
     private Learner learner;
 
     // Threading support
-    ExecutorService executorService;
+    private ExecutorService executorService;
 
     // User database
     // Should be a map of username : user stat object like their PW or if they are active
@@ -92,6 +93,7 @@ public class ChatServerImpl implements ChatServerInterface {
         this.proposer = new Proposer();
         this.acceptor = new Acceptor();
         this.learner = new Learner();
+        this.isLeader = false;
 
         executorService = Executors.newFixedThreadPool(50);
 
@@ -116,6 +118,26 @@ public class ChatServerImpl implements ChatServerInterface {
 
     public void setServers(List<Integer> otherPorts, int port) {
         this.proposer.setPorts(otherPorts);
+    }
+
+    public void setIsLeader(boolean lead) {
+        this.isLeader = lead;
+    }
+
+    public boolean getIsLeader() {
+        return this.isLeader;
+    }
+
+    public List<String> getLoggedInUsers() {
+        return this.loggedInUsers;
+    }
+
+    public Proposer getProposer() {
+        return this.proposer;
+    }
+
+    public int getPort() {
+        return this.port;
     }
 
     // =========================
@@ -404,6 +426,20 @@ public class ChatServerImpl implements ChatServerInterface {
             return this.chatRoomHistory.get(chatName);
         }
         return null;
+    }
+
+    @Override
+    public void cleanUpClients(String clientName) {
+        // Start paxos for logging out a user which essentially cleans the client from the server
+        executorService.submit(() -> {
+            this.proposer.propose("logout", clientName, "", "", "");
+            LOGGER.info(String.format("Successfully cleaned up client: %s.", clientName));
+        });
+    }
+
+    @Override
+    public boolean sendHeartBeat() {
+        return true;
     }
     
 
