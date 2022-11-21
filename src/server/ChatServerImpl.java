@@ -452,6 +452,10 @@ public class ChatServerImpl implements ChatServerInterface {
         return true;
     }
     
+    @Override
+    public boolean sendIsLeader() {
+        return this.isLeader;
+    }
 
     // ======================================
 

@@ -1,4 +1,4 @@
 cd ../bin/
-java server.ChatCoordinator 5555 5556 5557 5558 5559
+java server.ChatCoordinator ../config/port-list.cfg
 
 read -p "Press enter to continue."

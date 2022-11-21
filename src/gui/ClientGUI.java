@@ -328,6 +328,7 @@ public class ClientGUI {
         client.sendMessage(Instant.now(), myUsername, currChatRoom, newMessage);
       } catch (RemoteException re) {
         LOGGER.severe("Error sending message!");
+        openPopUp("Error sending message!");
       }
     }
   }
@@ -354,6 +355,8 @@ public class ClientGUI {
       } catch (RemoteException re) {
         LOGGER.severe(
           String.format("Error joining chatroom: %s", chatroomName));
+          openPopUp("Server error on joining the chatroom. Try again.");
+          return;
       }
       
       // Success or fail
@@ -681,7 +684,11 @@ public class ClientGUI {
     addComponentToPanel(activeChatArea, gbc);
 
     // Update list of active chat rooms
-    setRoomList();
+    if (client.getChatStub() != null) {
+      setRoomList();
+    } else {
+      LOGGER.severe("Remote is not connected!");
+    }
 
     // Joining chat
     joinChatLabel = new JLabel("Join Room (Enter Name):");
@@ -880,8 +887,12 @@ public class ClientGUI {
     addComponentToPanel(activeChatArea, gbc);
 
     // Update list of active chat rooms
-    setRoomList();
-
+    if (client.getChatStub() != null) {
+      setRoomList();
+    } else {
+      LOGGER.severe("Not connected to a remote yet!");
+    }
+    
     // Add the register button
     JButton regButton = new JButton("Register");
     regButton.addActionListener(new ActionListener() {

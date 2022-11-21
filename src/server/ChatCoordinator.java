@@ -8,7 +8,9 @@ import java.util.logging.Logger;
 
 import client.ClientInterface;
 
+import java.io.BufferedReader;
 import java.io.FileInputStream;
+import java.io.FileReader;
 import java.io.IOException;
 
 // RMI Imports
@@ -49,29 +51,13 @@ public class ChatCoordinator {
     private static int largestPropId = 0;
     private static int currLeader = 0;
 
+    // TODO: Possibly keep track of connected clients on the leader server
+    // TODO: transfer over connected clients to new leader when new leader elected
+
     // Threading support
     private static ExecutorService executorService = Executors.newFixedThreadPool(10);
 
-    /**
-     * Parse port arguments for the server replicas
-     * I want 5 replicas at least
-     * @param args
-     */
-    private static void parseArgs(String[] args) {
-        if (args.length < 5) {
-            LOGGER.severe("Invalid usage, you must have at least 5 ports!");
-            System.exit(1);
-        }
 
-        for (int i = 0; i < args.length; i++) {
-            int currPort = Integer.parseInt(args[i]);
-            if (currPort <= 1000 && currPort >= 65535) {
-                LOGGER.severe("Port must be in Range: 1000-65535!");
-                System.exit(1);
-            }
-            serverPorts.add(currPort);
-        }
-    }
 
     /**
      * Keep track of connected clients to the leader.
@@ -126,8 +112,13 @@ public class ChatCoordinator {
                     // Keep track of highest proposed val so far in case
                     // new leader is elected
                     largestPropId = currServer.getProposer().getPropId();
+                // Reset leadership if the server was elected leader before but is now not the leader.
+                } else {
+                    if (currServer.getIsLeader()) {
+                        currServer.setIsLeader(false);
+                    }
                 }
-                
+
                 int serverPort = currServer.getPort();
                 try {
                     Registry registry = LocateRegistry.getRegistry(serverPort);
@@ -263,6 +254,44 @@ public class ChatCoordinator {
     }
 
     /**
+     * Parse port arguments for the server replicas
+     * I want 5 replicas at least
+     * @param args
+     */
+    private static void parsePorts(String[] args) {
+        String portListFile = args[0];
+
+        BufferedReader reader;
+		try {
+			reader = new BufferedReader(new FileReader(portListFile));
+			String portString = reader.readLine();
+			while (portString != null) {
+                int currPort = Integer.parseInt(portString);
+                if (currPort <= 1000 && currPort >= 65535) {
+                    LOGGER.severe("Port must be in Range: 1000-65535!");
+                    System.exit(1);
+                }
+                serverPorts.add(currPort);
+				// read next line
+				portString = reader.readLine();
+			}
+			reader.close();
+		} catch (IOException e) {
+			LOGGER.severe("Port list file was not found");
+            System.exit(1);
+		} catch (NumberFormatException ne) {
+            LOGGER.severe("Error parsing the port list file ports. Make sure they are formatted right!");
+            System.exit(1);
+        }
+
+        if (serverPorts.size() < 5) {
+            LOGGER.severe("Invalid usage, you must have at least 5 ports!");
+            System.exit(1);
+        }
+    }
+
+
+    /**
      * Driver for Chat Coordinator
      * @param args
      * @throws Exception
@@ -274,7 +303,7 @@ public class ChatCoordinator {
         System.setProperty("sun.rmi.transport.connectionTimeout", "1000");
 
         // Parse any arguments
-        parseArgs(args);
+        parsePorts(args);
 
         // Make new servers with the ports by binding them to the registry
         for (int i = 0; i < serverPorts.size(); i++){
@@ -321,11 +350,13 @@ public class ChatCoordinator {
         executorService.submit(() -> {
             getLeaderConnClientsheartBeats();
         });
+
         // Make sure all servers are still alive or at least the leader is alive
         executorService.submit(() -> {
             getServerHeartBeats();
         });
 
+        //TODO: DIAGNOSTIC
         executorService.submit(() -> {
             
             try {

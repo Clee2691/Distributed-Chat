@@ -168,6 +168,13 @@ public interface ChatServerInterface extends Remote{
      */
     boolean sendHeartBeat() throws RemoteException;
 
+    /**
+     * Return if this server is the current leader
+     * @return True if leader false otherwise
+     * @throws RemoteException
+     */
+    boolean sendIsLeader() throws RemoteException;
+
 
     // ====================================
     

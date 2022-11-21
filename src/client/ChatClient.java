@@ -1,7 +1,9 @@
 package client;
 
+import java.io.BufferedReader;
 // Logging Imports
 import java.io.FileInputStream;
+import java.io.FileReader;
 import java.io.IOException;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
@@ -12,7 +14,7 @@ import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
-
+import java.util.ArrayList;
 // Java Imports
 import java.util.List;
 import java.util.Map;
@@ -24,9 +26,10 @@ import server.ChatServerInterface;
 import server.Response;
 
 import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class ChatClient implements ClientInterface {
-    //TODO: Check server's heartbeat, if it's down, attempt to cycle through servers to find the leader
     /**
      * Logging support that loads a custom logging properties file.
      */
@@ -54,13 +57,23 @@ public class ChatClient implements ClientInterface {
     // The remote registry server is connected to
     private Registry remoteReg;
 
+    private List<Integer> serverPorts;
+
+    private ExecutorService executorService;
+
+    private String host;
+    private int connectedPort;
+
     //TODO: GET RID OF AFTER DONE
     public Random rand = new Random();
 
     /**
      * Empty constructor
      */
-    public ChatClient() {};
+    public ChatClient() {
+        this.serverPorts = new ArrayList<Integer>();
+        this.executorService = Executors.newFixedThreadPool(10);
+    };
 
     /**
      * Set the GUI for the client.
@@ -91,9 +104,30 @@ public class ChatClient implements ClientInterface {
      * Set the remote registry
      * @param reg
      */
-    public void setRemoteReg(Registry reg) throws NotBoundException, RemoteException {
-        this.remoteReg = reg;
-        setChatStub();
+    public void setRemoteReg(String host) {
+        LOGGER.info("Setting the remote registry...");
+        Registry currReg;
+        ChatServerInterface chatStub;
+
+        // Locate the leader server
+        for (int port : serverPorts) {
+            try {
+                currReg = LocateRegistry.getRegistry(host, port);
+                chatStub = (ChatServerInterface)currReg.lookup("chat");
+                if (chatStub.sendIsLeader()) {
+                    this.remoteReg = currReg;
+                    this.connectedPort = port;
+                    setChatStub();
+                    break;
+                }
+            }  catch (RemoteException re) {
+                LOGGER.severe(String.format("Server on port: %d could not be reached!", port));
+                continue;
+            } catch (NotBoundException nbe) {
+                LOGGER.severe("Registry name not found!");
+                continue;
+            }
+        }
     }
 
     /**
@@ -104,6 +138,37 @@ public class ChatClient implements ClientInterface {
         return this.remoteReg;
     }
 
+    /**
+     * Get the list of server ports that are available to choose from
+     * @return
+     */
+    public List<Integer> getServerPorts() {
+        return this.serverPorts;
+    }
+
+    /**
+     * Set the host
+     * @param h The host name
+     */
+    public void setHost(String h) {
+        this.host = h;
+    }
+
+    /**
+     * Get the host
+     * @return The host
+     */
+    public String getHost() {
+        return this.host;
+    }
+
+    public void setConnectedPort(int p) {
+        this.connectedPort = p;
+    }
+
+    public int getConnectedPort() {
+        return this.connectedPort;
+    }
     // ======================================
 
     //         Register/Login the user
@@ -276,16 +341,49 @@ public class ChatClient implements ClientInterface {
 
     @Override
     public boolean sendHeartBeat() {
-        // if (rand.nextInt(3) == 0) {
-        //     try {
-        //         LOGGER.info("Sleeping thread for 3 seconds.");
-        //         Thread.sleep(10000);
-
-        //     } catch (InterruptedException ie) {
-        //         LOGGER.severe("sleep interrupted");
-        //     }
-        // }
         return true;
+    }
+
+    // ======================================
+
+    //         Threaded Methods
+
+    // ======================================
+
+    public void getServerHeartBeat() {
+        while(true) {
+            try {
+                if (this.chatStub == null) {
+                    setRemoteReg(host);
+                    continue;
+                }
+
+                // Check if it is alive
+                if (this.chatStub.sendHeartBeat()) {
+                    LOGGER.info(
+                        String.format(
+                            "Server on port: %d is still alive!", 
+                            this.connectedPort));
+                    // Check to see if it is the leader
+                    if (!this.chatStub.sendIsLeader()) {
+                        setRemoteReg(host);
+                    }
+                }
+            } catch (RemoteException re) {
+                LOGGER.severe(
+                    String.format(
+                        "Error connecting to server on port: %d. Finding new leader...", 
+                        this.connectedPort));
+                setRemoteReg(this.host);
+            }
+
+            try {
+                LOGGER.info("Sleeping server heartbeat sensor for 3 seconds");
+                Thread.sleep(3000);
+            } catch (InterruptedException ie) {
+                LOGGER.severe("Interrupted sleeping heartbeat sensor");
+            }
+        }
     }
 
 
@@ -296,18 +394,38 @@ public class ChatClient implements ClientInterface {
     // ======================================
 
     /**
-     * Parse port arguments for client
-     * Must have a host and a port
+     * Parse port arguments for the server replicas
+     * I want 5 replicas at least
      * @param args
      */
-    private static void checkArgs(String[] args) {
-        if (args.length < 2) {
-            LOGGER.severe("Invalid usage, you must have a host and port!");
+    private void parsePorts(String[] args) {
+        String portListFile = args[1];
+
+        BufferedReader reader;
+		try {
+			reader = new BufferedReader(new FileReader(portListFile));
+			String portString = reader.readLine();
+			while (portString != null) {
+                int currPort = Integer.parseInt(portString);
+                if (currPort <= 1000 && currPort >= 65535) {
+                    LOGGER.severe("Port must be in Range: 1000-65535!");
+                    System.exit(1);
+                }
+                serverPorts.add(currPort);
+				// read next line
+				portString = reader.readLine();
+			}
+			reader.close();
+		} catch (IOException e) {
+			LOGGER.severe("Port list file was not found");
+            System.exit(1);
+		} catch (NumberFormatException ne) {
+            LOGGER.severe("Error parsing the port list file ports. Make sure they are formatted right!");
             System.exit(1);
         }
-        int currPort = Integer.parseInt(args[1]);
-        if (currPort <= 1000 && currPort >= 65535) {
-            LOGGER.severe("Port must be in Range: 1000-65535!");
+
+        if (serverPorts.size() < 5) {
+            LOGGER.severe("Invalid usage, you must have at least 5 ports!");
             System.exit(1);
         }
     }
@@ -317,27 +435,28 @@ public class ChatClient implements ClientInterface {
      * @param args
      */
     public static void main(String[] args) {
-        checkArgs(args);
+        if (args.length < 2) {
+            LOGGER.severe("Must include the host and the file with port numbers!");
+            System.exit(1);
+        }
 
         String host = args[0];
-        int port = Integer.parseInt(args[1]);
 
-        
         ChatClient chatClient = new ChatClient();
 
-        // Locate the remote stub for the chat server for now
-        try {
-            // Get a reference to the remote registry object on the specified host
-            chatClient.setRemoteReg(LocateRegistry.getRegistry(host, port));
+        chatClient.setHost(host);
+        chatClient.parsePorts(args);
+        
+        // Get a reference to the remote registry object on the specified host
+        chatClient.setRemoteReg(host);
 
-        } catch (RemoteException re) {
-            LOGGER.severe(re.toString());
-            LOGGER.severe("Could not find remote on client instantiation. Server might be down!");
-        } catch (NotBoundException nbe) {
-            LOGGER.severe("Registry name not found!");
-        }
-        // Set the GUI for the client
+        // Set GUI
         ClientGUI cGUI = new ClientGUI(chatClient);
         chatClient.setGUI(cGUI);
+
+        chatClient.executorService.submit(() -> {
+            chatClient.getServerHeartBeat();
+        });
+
     }
 }
