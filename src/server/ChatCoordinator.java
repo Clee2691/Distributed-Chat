@@ -16,6 +16,7 @@ import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
 import java.rmi.AccessException;
+import java.rmi.NoSuchObjectException;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 
@@ -114,7 +115,7 @@ public class ChatCoordinator {
 
     /**
      * Keep track of which servers are down
-     * If the leader is down, elect a new one!
+     * If the leader is down, elect a new one
      */
     private static void getServerHeartBeats() {
         while (true) {
@@ -134,12 +135,17 @@ public class ChatCoordinator {
                     isAlive = chatStub.sendHeartBeat();
                     if (isAlive) {
                         LOGGER.info(String.format("Server on port: %d is still alive!", serverPort));
+                        // If the current leader's ID is greater than the checked server's ID
+                        // Relect the leader since the server is back up
+                        if (currLeader > i) {
+                            electNewLeader();
+                        }
                     }
                 } catch (RemoteException re) {
                     LOGGER.severe(String.format("Server on port: %d is dead!", serverPort));
-                    // TODO:ELECT A NEW LEADER!
                     if (i == currLeader) {
                         LOGGER.severe(String.format("Server leader on port: %d is down! Need to re-elect a leader", serverPort));
+                        electNewLeader();
                     }
                 } catch (NotBoundException nbe) {
                     LOGGER.severe(String.format("Server on port: %d is not bound! Restart servers!", serverPort));
@@ -156,31 +162,138 @@ public class ChatCoordinator {
     }
 
     /**
+     * Check to see if lower PID servers are alive and return the lowest PID found to be alive so far
+     * @param proposedLeader The proposed leader should be alive
+     * @return
+     */
+    private static int checkLowerPids(int proposedLeader) {
+        LOGGER.info(String.format("Checking lower pids than: %d", proposedLeader));
+        Registry reg;
+        ChatServerImpl currServer;
+        int serverPort;
+        
+        for (int i = proposedLeader - 1; i >= 0; i--) {
+            currServer = chatServers.get(i);
+            serverPort = currServer.getPort();
+            try {
+                reg = LocateRegistry.getRegistry(serverPort);
+                ChatServerInterface chatStub = (ChatServerInterface)reg.lookup("chat");
+                if (chatStub.sendHeartBeat()) {
+                    LOGGER.info(String.format("Process #: %d is alive!", i));
+                    return i;
+                }
+            } catch (RemoteException re) {
+                continue;
+            } catch (NotBoundException bne) {
+                continue;
+            }
+        }
+
+        LOGGER.info(
+            String.format(
+                "No suitable lower pIDs found to be leader. Server #: %d is leader.", 
+                proposedLeader));
+
+        return proposedLeader;
+    }
+
+    /**
+     * Bully algorithm to elect new leader except using lowest process ID instead
+     * of highest process ID
+     */
+    private static void electNewLeader() {
+        LOGGER.info("Electing new leader...");
+        
+        int nextServer = currLeader;
+        Registry reg;
+        // Keep trying to elect a new leader no matter what
+        int retries = 15;
+        while (retries > 0) {
+            // Choose potential next leader
+            nextServer = (nextServer + 1) % chatServers.size();
+            // See if it is alive
+            ChatServerImpl currServer = chatServers.get(nextServer);
+            int serverPort = currServer.getPort();
+            try {
+                reg = LocateRegistry.getRegistry(serverPort);
+                ChatServerInterface chatStub = (ChatServerInterface)reg.lookup("chat");
+                // Send message to lower processes to see if they are alive
+                if (chatStub.sendHeartBeat()) {
+                    int leader = nextServer;
+
+                    while (true) {
+                        // Keep checking lower PID numbers until the first server is pinged
+                        int found = checkLowerPids(leader);
+                        
+                        if (found < leader) {
+                            leader = found;
+                            continue;
+                        } else {
+                            break;
+                        }
+                    } 
+                    
+                    // If a lower PID is found, that is the new leader
+                    currLeader = leader;
+                    chatServers.get(leader).setIsLeader(true);
+                    // Set the proposal ID to be the last leader's proposal ID
+                    chatServers.get(nextServer).getProposer().setPropId(largestPropId);
+                    LOGGER.info(
+                        String.format(
+                            "New leader found! Server on port %d is now leader.", 
+                            chatServers.get(leader).getPort()));
+                    break;
+                }
+            }  catch (RemoteException re) {
+                LOGGER.severe(String.format("Server on port: %d is dead!", serverPort));
+            } catch (NotBoundException nbe) {
+                LOGGER.severe(String.format("Server on port: %d is not bound! Restart servers!", serverPort));
+            }
+            try {
+                LOGGER.info("Sleeping election retry for 1 second.");
+                Thread.sleep(1000);
+            } catch (InterruptedException ie) {
+                LOGGER.severe("Interrupted sleeping election retry sensor");
+            }
+            retries--;
+        }
+        if (retries == 0) {
+            LOGGER.severe("Max number of retries for election reached. Restart all servers!");
+        }
+    }
+
+    /**
      * Driver for Chat Coordinator
      * @param args
      * @throws Exception
      */
     public static void main(String[] args) {
+        // Set timeouts for responses
         System.setProperty("sun.rmi.transport.tcp.responseTimeout", "1000");
         System.setProperty("sun.rmi.dgc.ackTimeout", "1000");
         System.setProperty("sun.rmi.transport.connectionTimeout", "1000");
+
+        // Parse any arguments
         parseArgs(args);
-        
 
         // Make new servers with the ports by binding them to the registry
         for (int i = 0; i < serverPorts.size(); i++){
-            try{
+            try {
                 int currPort = serverPorts.get(i);
-                // Add a new chat server impl
-                chatServers.add(new ChatServerImpl(currPort));
+                ChatServerImpl newServer = new ChatServerImpl(currPort);
 
+                newServer.setPid(i);
+                
                 // Set the first replica as the leader
                 if (i == 0) {
-                    chatServers.get(i).setIsLeader(true);
+                    newServer.setIsLeader(true);
                 } else {
-                    chatServers.get(i).setIsLeader(false);
+                    newServer.setIsLeader(false);
                 }
-                
+
+                // Add a new chat server impl
+                chatServers.add(newServer);
+
                 // Stub the remote object
                 ChatServerInterface chatStub = (ChatServerInterface) UnicastRemoteObject.
                                             exportObject(chatServers.get(i), 
@@ -207,6 +320,59 @@ public class ChatCoordinator {
         // Get any connected clients to the leader's heartbeat
         executorService.submit(() -> {
             getLeaderConnClientsheartBeats();
+        });
+        // Make sure all servers are still alive or at least the leader is alive
+        executorService.submit(() -> {
+            getServerHeartBeats();
+        });
+
+        executorService.submit(() -> {
+            
+            try {
+                LOGGER.info("Sleeping thread to kill server 1 for 10 seconds");
+                Thread.sleep(10000);
+            } catch (InterruptedException ie) {
+                LOGGER.severe("Interrupted sleep before killing server 1.");
+            }
+
+            try {
+                LOGGER.info("Stopping server 1...");
+                UnicastRemoteObject.unexportObject(chatServers.get(0), true);
+            } catch (NoSuchObjectException noObj) {
+                LOGGER.severe("ERROR stopping server 1.");
+            }
+
+            try {
+                LOGGER.info("Stopping server 2...");
+                UnicastRemoteObject.unexportObject(chatServers.get(1), true);
+            } catch (NoSuchObjectException noObj) {
+                LOGGER.severe("ERROR stopping server 2.");
+            }
+
+            try {
+                LOGGER.info("Sleeping thread to start server 2 for 10 seconds");
+                Thread.sleep(10000);
+            } catch (InterruptedException ie) {
+                LOGGER.severe("Interrupted sleep before start server 2.");
+            }
+
+            try {
+                LOGGER.info("Restarting server 2...");
+                // Stub the remote object
+                ChatServerInterface chatStub1 = (ChatServerInterface) UnicastRemoteObject.
+                                            exportObject(chatServers.get(1),
+                                                         5556);
+                // Creates and exports a Registry instance on the local host that accepts requests on the specified port.
+                Registry registry1 = LocateRegistry.getRegistry(5556);
+                registry1.rebind("chat", chatStub1);
+
+            } catch (NoSuchObjectException noObj) {
+                LOGGER.severe("ERROR no such object starting server 1.");
+            } catch (RemoteException re) {
+                LOGGER.severe(re.toString());
+                LOGGER.severe("ERROR remoteexception starting server 1.");
+            }
+
         });
     }
 

@@ -56,6 +56,8 @@ public class ChatServerImpl implements ChatServerInterface {
 
     private int port;
     private boolean isLeader;
+    // Unique process ID
+    private int pId;
 
     // Paxos
     private Proposer proposer;
@@ -138,6 +140,14 @@ public class ChatServerImpl implements ChatServerInterface {
 
     public int getPort() {
         return this.port;
+    }
+
+    public int getPid() {
+        return this.pId;
+    }
+
+    public void setPid(int id) {
+        this.pId = id;
     }
 
     // =========================

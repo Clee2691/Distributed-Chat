@@ -55,6 +55,10 @@ public class Proposer extends Thread {
         return this.propId;
     }
 
+    public void setPropId(int prop) {
+        this.propId = prop;
+    }
+
     public void setPorts(List<Integer> otherPorts) {
         this.serverPorts = otherPorts;
     }
