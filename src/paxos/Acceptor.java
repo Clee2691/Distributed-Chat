@@ -26,26 +26,50 @@ public class Acceptor extends Thread {
     
     private DBOperation prevVal;
 
+    /**
+     * Set the previously accepted proposal ID
+     * @param pId The previous ID
+     */
     public void setPrevProposalId(int pId) {
         this.prevProposalId = pId;
     }
 
+    /**
+     * Get the proposal ID
+     * @return Integer proposal ID
+     */
     public int getProposalId() {
         return this.prevProposalId;
     }
 
+    /**
+     * Set the prev accepted ID
+     * @param pId The ID
+     */
     public void setPrevAcceptedId(int pId) {
         this.prevProposalId = pId;
     }
 
+    /**
+     * Get the previous accepted ID
+     * @return
+     */
     public int getPrevAcceptedId() {
         return this.prevProposalId;
     }
 
+    /**
+     * Set the DBOperation to be done
+     * @param dbOp The DBOperation object
+     */
     public void setDBOp(DBOperation dbOp) {
         this.prevVal = dbOp;
     }
     
+    /**
+     * Get the DBOperation object
+     * @return DBOperation object
+     */
     public DBOperation getDBOp() {
         return this.prevVal;
     }

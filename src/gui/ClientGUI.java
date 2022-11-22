@@ -6,7 +6,7 @@ import java.io.IOException;
 import java.rmi.RemoteException;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
+
 // Java GUI Imports
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -17,6 +17,7 @@ import javax.swing.*;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 // Java Time
 import java.time.Instant;
@@ -297,7 +298,6 @@ public class ClientGUI {
     // Add the message and the button
     resPanel.add(newToast);
     resPanel.add(okButton);
-    
     resFrame.add(resPanel);
     resFrame.setTitle("ALERT");
     resFrame.pack();

@@ -1,17 +1,16 @@
 package server;
 
+// Java Utils
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 // Logging imports
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
-
-import client.ClientInterface;
-
 import java.io.BufferedReader;
 import java.io.FileInputStream;
 import java.io.FileReader;
@@ -25,10 +24,13 @@ import java.rmi.AccessException;
 import java.rmi.NoSuchObjectException;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
-import java.util.concurrent.ConcurrentHashMap;
+
 // Threading support
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ConcurrentHashMap;
+
+import client.ClientInterface;
 
 /**
  * Chat coordinator class
@@ -50,17 +52,20 @@ public class ChatCoordinator {
         }
     }
 
+    // Servers and their ports
     private static List<Integer> serverPorts = new ArrayList<Integer>();
     private static List<ChatServerImpl> chatServers = new ArrayList<ChatServerImpl>();
-    // Keep track of master state here
+
+    // Threading support
+    private static ExecutorService executorService = Executors.newFixedThreadPool(10);
+
+    // Snapshots of which ever is the lead server
     private static int largestPropId = 0;
     private static int currLeader = 0;
     private static Set<String> connectedUsers = new HashSet<String>();
     private static Map<String, String> leaderUserDB = new ConcurrentHashMap<String, String>();
     private static Map<String, List<String>> leaderChatRoomUsers = new ConcurrentHashMap<String, List<String>>();
     private static Map<String, List<String>> leaderChatRoomHistory = new ConcurrentHashMap<String, List<String>>();
-    // Threading support
-    private static ExecutorService executorService = Executors.newFixedThreadPool(10);
 
     /**
      * Keep track of connected clients to the leader.
@@ -72,7 +77,6 @@ public class ChatCoordinator {
             Set<String> connClients = leaderServer.getLoggedInUsers();
             boolean isAlive = false;
             if (connClients.size() > 0){
-                LOGGER.info("Checking for client heartbeats");
                 Registry remoteReg = leaderServer.getRegistry();
                 for (String client: connClients) {
                     try {
@@ -95,15 +99,20 @@ public class ChatCoordinator {
                 LOGGER.info(String.format("No connected clients to server on port: %d",leaderServer.getPort()));
             }
             
+            // Sleep thread for 5 seconds. Essentially check clients every 3 seconds.
             try {
-                //LOGGER.info("Sleeping client heartbeat sensor.");
-                Thread.sleep(5000);
+                Thread.sleep(3000);
             } catch (InterruptedException ie) {
                 LOGGER.severe("Interrupted sleeping client heartbeat sensor");
             }
         } 
     }
 
+    /**
+     * Merge current leader's data with the snapshot data
+     * @param clientMap The current server's map
+     * @param dataType The type of data to backup
+     */
     private synchronized static void mergeMaps(Map<String, List<String>> clientMap, String dataType) {
         Map<String, List<String>> theMap;
         if(dataType.equals("history")) {
@@ -126,29 +135,36 @@ public class ChatCoordinator {
     }
 
     /**
+     * Merge the lead server's user database with the snapshot one in the coordinator
+     * @param clientMap The lead server's user database
+     */
+    private synchronized static void mergeUserDB(Map<String, String> clientMap) {
+        clientMap.forEach(
+            (key, value) -> leaderUserDB.merge(key, value, (v1, v2) -> v2));
+    }
+
+    /**
      * Keep track of which servers are down
      * If the leader is down, elect a new one
      */
     private static void getServerHeartBeats() {
         while (true) {
-            LOGGER.info("Checking server heartbeats...");
             boolean isAlive = false;
             for (int i = 0; i < chatServers.size(); i++) {
                 ChatServerImpl currServer = chatServers.get(i);
                 if (i == currLeader) {
                     // Keep track of leader's information
-                    // new leader is elected
                     largestPropId = currServer.getProposer().getPropId();
                     connectedUsers.addAll(currServer.getLoggedInUsers());
                     mergeMaps(currServer.getChatRoomHistory(), "history");
                     mergeMaps(currServer.getChatRoomUsers(), "users");
+                    mergeUserDB(currServer.getUserDB());
 
                 // Reset leadership if the server was elected leader before but is now not the leader.
                 } else {
                     if (currServer.getIsLeader()) {
                         currServer.setIsLeader(false);
                     }
-                    
                 }
 
                 int serverPort = currServer.getPort();
@@ -157,9 +173,8 @@ public class ChatCoordinator {
                     ChatServerInterface chatStub = (ChatServerInterface) registry.lookup("chat");
                     isAlive = chatStub.sendHeartBeat();
                     if (isAlive) {
-                        //LOGGER.info(String.format("Server on port: %d is still alive!", serverPort));
                         // If the current leader's ID is greater than the checked server's ID
-                        // Relect the leader since the server is back up
+                        // Re-elect the leader since the server is back up
                         if (currLeader > i) {
                             electNewLeader();
                         }
@@ -174,9 +189,9 @@ public class ChatCoordinator {
                     LOGGER.severe(String.format("Server on port: %d is not bound! Restart servers!", serverPort));
                 }
             }
-    
+            
+            // Get server heartbeats every second
             try {
-                //LOGGER.info("Sleeping server heartbeat sensor.");
                 Thread.sleep(1000);
             } catch (InterruptedException ie) {
                 LOGGER.severe("Interrupted sleeping server heartbeat sensor");
@@ -187,7 +202,7 @@ public class ChatCoordinator {
     /**
      * Check to see if lower PID servers are alive and return the lowest PID found to be alive so far
      * @param proposedLeader The proposed leader should be alive
-     * @return
+     * @return Integer PID of the lowest alive server
      */
     private static int checkLowerPids(int proposedLeader) {
         LOGGER.info(String.format("Checking lower pids than: %d", proposedLeader));
@@ -230,6 +245,7 @@ public class ChatCoordinator {
         int nextServer = currLeader;
         Registry reg;
         // Keep trying to elect a new leader no matter what
+        // for at least 15 retries
         int retries = 15;
         while (retries > 0) {
             // Choose potential next leader
@@ -262,9 +278,12 @@ public class ChatCoordinator {
                     newLeader.setIsLeader(true);
                     // Set the proposal ID to be the last leader's proposal ID
                     newLeader.getProposer().setPropId(largestPropId + 1);
+
+                    // Catch up new leader to the most recent snapshot
                     newLeader.setLoggedInUsers(connectedUsers);
                     newLeader.setChatRoomHistory(leaderChatRoomHistory);
                     newLeader.setChatRoomUsers(leaderChatRoomUsers);
+                    newLeader.setUserDB(leaderUserDB);
                     LOGGER.info(
                         String.format(
                             "New leader found! Server on port %d is now leader.", 
@@ -392,7 +411,10 @@ public class ChatCoordinator {
             getServerHeartBeats();
         });
 
-        //TODO: DIAGNOSTIC
+        // This simulates server crashes
+        // This will kill server 0 and 1 and then after some time
+        // restart server 1 and then restart server 0.
+        // I am assuming that a server will be crashing and restarting fresh
         executorService.submit(() -> {
             
             try {

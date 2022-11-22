@@ -42,32 +42,52 @@ public class Proposer extends Thread {
     // List of servers
     List<Integer> serverPorts;
 
-    // Constructor initializing the proposal ID.
+    /**
+     * Empty constructor
+     * Initializes the proposal ID
+     */
     public Proposer() {
         this.propId = 0;
     }
 
+    /**
+     * Increments the proposal ID
+     */
     public void incrementPropID() {
         propId++;
     }
 
+    /**
+     * Get the proposal ID
+     * @return The proposal ID
+     */
     public int getPropId() {
         return this.propId;
     }
 
+    /**
+     * Set the proposal ID
+     * @param prop Integer of the proposal ID
+     */
     public void setPropId(int prop) {
         this.propId = prop;
     }
 
+    /**
+     * Set the ports for the proposer
+     * @param otherPorts List of ports
+     */
     public void setPorts(List<Integer> otherPorts) {
         this.serverPorts = otherPorts;
     }
     
     /**
      * Start paxos proposal
-     * @param operation The operation - Register or send message
+     * @param operation The operation - Register or send message or join/create chatroom
      * @param key If registering, the username/password
-     * @param val The value if operation is PUT
+     * @param val The value of the operation
+     * @param message String message if operation is sending a message
+     * @param chatroom Chatroom name if joining or creating a chatroom
      * @return Response object with the server's reply
      */
     public Response propose(String operation, String key, String val, String message, String chatroom) {
@@ -268,7 +288,6 @@ public class Proposer extends Thread {
     /**
      * Put together the final response to send back to the calling client.
      * @param res The result from the commits
-     * @param client The client that sent the request
      * @return Response object
      */
     private Response makeResponse(String res) {

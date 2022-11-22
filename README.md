@@ -5,11 +5,14 @@ A distributed chat application implemented with RPC (Java RMI). Users are able t
 # Project Structure
 
 ``` bash
+config
+├── clientlogging.properties
+├── port-list.cfg
+└── serverlogging.properties
 src
 ├── client
 │   ├── ChatClient.java
-│   ├── ClientInterface.java
-│   └── clientlogging.properties
+│   └── ClientInterface.java
 ├── gui
 │   ├── ClientGUI.java
 │   └── SmartScroller.java
@@ -22,8 +25,7 @@ src
 │   ├── ChatServerImpl.java
 │   ├── ChatServerInterface.java
 │   ├── DBOperation.java
-│   ├── Response.java
-│   └── serverlogging.properties 
+│   └── Response.java
 ├── build.sh
 ├── run_client.sh
 └── run_sever.sh

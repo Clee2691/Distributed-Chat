@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The Key Value Store Remote Interface for RMI
+ * The Chat Server Remote Interface for RMI
  */
 public interface ChatServerInterface extends Remote{
     

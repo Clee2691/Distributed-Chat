@@ -19,11 +19,11 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
 // Java Imports
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 // Threading support
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -56,10 +56,11 @@ public class ChatServerImpl implements ChatServerInterface {
         }
     }
 
-    private int port;
-    private boolean isLeader;
     // Unique process ID
     private int pId;
+    private int port;
+    private boolean isLeader;
+
 
     // Paxos
     private Proposer proposer;
@@ -69,10 +70,12 @@ public class ChatServerImpl implements ChatServerInterface {
     // Threading support
     private ExecutorService executorService;
 
+    private Set<String> loggedInUsers;
+
     // User database
     // Should be a map of username : user stat object like their PW or if they are active
     private Map<String, String> userDatabase;
-    private Set<String> loggedInUsers;
+
     // The rooms and associated users
     // Name of room : List of users in the room
     private Map<String, List<String>> chatRoomUsers;
@@ -110,66 +113,141 @@ public class ChatServerImpl implements ChatServerInterface {
         System.setProperty("sun.rmi.transport.connectionTimeout", "1000");
     }
 
-    // Set the registry for this server
+    /**
+     * Set the registry for this server
+     * @param currReg The registry object
+     */
     public void setRegistry(Registry currReg) {
         this.remoteReg = currReg;
     }
 
-    // Get the registry for this server
+    /**
+     * Get the registry of this server
+     * @return The registry object
+     */
     public Registry getRegistry() {
         return this.remoteReg;
     }
 
+    /**
+     * Set the server list of all other servers
+     * @param otherPorts A list of other server ports
+     * @param port The port this server is on
+     */
     public void setServers(List<Integer> otherPorts, int port) {
         this.proposer.setPorts(otherPorts);
     }
 
+    /**
+     * Set this server as the leader or not
+     * @param lead Boolean true if leader or false if not
+     */
     public void setIsLeader(boolean lead) {
         this.isLeader = lead;
     }
 
+    /**
+     * Get the leader status of the server
+     * @return True if leader false otherwise
+     */
     public boolean getIsLeader() {
         return this.isLeader;
     }
 
+    /**
+     * Get a set of the logged in users of this server
+     * @return Set
+     */
     public Set<String> getLoggedInUsers() {
         return this.loggedInUsers;
     }
 
+    /**
+     * Set the logged in user set
+     * @param activeUsers Set of the logged in users
+     */
     public void setLoggedInUsers(Set<String> activeUsers) {
         this.loggedInUsers.addAll(activeUsers);
     }
 
+    /**
+     * Get the proposer
+     * @return Proposer object
+     */
     public Proposer getProposer() {
         return this.proposer;
     }
 
+    /**
+     * Get the server's port
+     * @return Integer port
+     */
     public int getPort() {
         return this.port;
     }
 
+    /**
+     * Get the PID of this server
+     * @return Integer PID
+     */
     public int getPid() {
         return this.pId;
     }
 
+    /**
+     * Set the PID of this server
+     * @param id The id of the server
+     */
     public void setPid(int id) {
         this.pId = id;
     }
 
+    /**
+     * Get this server's chat room history
+     * @return All chat rooms and their histories
+     */
     public Map<String, List<String>> getChatRoomHistory() {
         return this.chatRoomHistory;
     }
 
+    /**
+     * Set the chatroom history map
+     * @param history The chatroom history map
+     */
     public void setChatRoomHistory(Map<String, List<String>> history) {
         this.chatRoomHistory = history;
     }
 
+    /**
+     * Get the servers chatroom and their users
+     * @return The chatroom user map
+     */
     public Map<String, List<String>> getChatRoomUsers() {
         return this.chatRoomUsers;
     }
 
+    /**
+     * Set the server's chatrooms and their users
+     * @param users Map of chatrooms and their users
+     */
     public void setChatRoomUsers(Map<String, List<String>> users) {
         this.chatRoomUsers = users;
+    }
+
+    /**
+     * Set the user database
+     * @param userdb The Map of usernames and passwords
+     */
+    public void setUserDB(Map<String, String> userdb) {
+        this.userDatabase = userdb;
+    }
+
+    /**
+     * Get the server's user database
+     * @return Map of usernames and passwords
+     */
+    public Map<String, String> getUserDB() {
+        return this.userDatabase;
     }
 
     // =========================
@@ -500,14 +578,12 @@ public class ChatServerImpl implements ChatServerInterface {
 
     @Override
     public boolean prepare(int propId) {
-        boolean prepped = this.acceptor.prepare(propId);
-        return prepped;
+        return this.acceptor.prepare(propId);
     }
 
     @Override
     public DBOperation accept(int propId, DBOperation val) {
-        DBOperation accepted = this.acceptor.accept(propId, val);
-        return accepted;
+        return this.acceptor.accept(propId, val);
     }
 
     @Override

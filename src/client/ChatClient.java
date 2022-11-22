@@ -1,32 +1,34 @@
 package client;
 
-import java.io.BufferedReader;
 // Logging Imports
+import java.io.BufferedReader;
 import java.io.FileInputStream;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
+
+// RMI Imports
 import java.rmi.AlreadyBoundException;
 import java.rmi.NoSuchObjectException;
-// RMI Imports
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
-import java.util.ArrayList;
+
 // Java Imports
 import java.util.List;
 import java.util.Map;
 import java.time.Instant;
+import java.util.ArrayList;
 
 // Custom Imports
 import gui.ClientGUI;
 import server.ChatServerInterface;
 import server.Response;
 
-import java.util.Random;
+// Threading Imports
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -67,9 +69,6 @@ public class ChatClient implements ClientInterface {
     private String host;
     private int connectedPort;
     private String username;
-
-    //TODO: GET RID OF AFTER DONE
-    public Random rand = new Random();
 
     /**
      * Empty constructor
@@ -171,29 +170,54 @@ public class ChatClient implements ClientInterface {
         return this.host;
     }
 
+    /**
+     * Set the client's port
+     * @param p The port
+     */
     public void setConnectedPort(int p) {
         this.connectedPort = p;
     }
 
+    /**
+     * Get the connected port
+     * @return The port
+     */
     public int getConnectedPort() {
         return this.connectedPort;
     }
 
+    /**
+     * Set this client as logged in or not
+     * @param loggedIn Boolean true or false
+     */
     public void setIsLoggedIn(boolean loggedIn) {
         this.isLoggedIn = loggedIn;
     }
 
+    /**
+     * Get if this client is currently logged in
+     * @return True if logged in false otherwise
+     */
     public boolean getIsLoggedIn() {
         return this.isLoggedIn;
     }
 
+    /**
+     * Set the client's username
+     * @param user String username
+     */
     public void setUserName(String user) {
         this.username = user;
     }
 
+    /**
+     * Get the clients username
+     * @return The username
+     */
     public String getUsername() {
         return this.username;
     }
+
     // ======================================
 
     //         Register/Login the user
@@ -436,10 +460,6 @@ public class ChatClient implements ClientInterface {
 
                 // Check if it is alive
                 if (this.chatStub.sendHeartBeat()) {
-                    // LOGGER.info(
-                    //     String.format(
-                    //         "Server on port: %d is still alive!", 
-                    //         this.connectedPort));
                     // Check to see if it is the leader
                     if (!this.chatStub.sendIsLeader()) {
                         LOGGER.info(
@@ -458,7 +478,6 @@ public class ChatClient implements ClientInterface {
             }
 
             try {
-                //LOGGER.info("Sleeping server heartbeat sensor for 3 seconds");
                 Thread.sleep(1000);
             } catch (InterruptedException ie) {
                 LOGGER.severe("Interrupted sleeping heartbeat sensor");

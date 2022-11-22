@@ -3,6 +3,9 @@ package server;
 import java.io.Serializable;
 import java.util.logging.Level;
 
+/**
+ * Response object that has a Level and String
+ */
 public class Response implements Serializable {
     private Level logLevel;
     private String serverReply;

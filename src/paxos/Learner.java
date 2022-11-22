@@ -33,6 +33,9 @@ public class Learner extends Thread {
 
     private Map<Integer, DBOperation> acceptedVals;
 
+    /**
+     * The empty constructor
+     */
     public Learner() {
         this.acceptedVals = new ConcurrentHashMap<Integer, DBOperation>();
     }
