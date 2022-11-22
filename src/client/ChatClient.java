@@ -7,7 +7,8 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
-
+import java.rmi.AlreadyBoundException;
+import java.rmi.NoSuchObjectException;
 // RMI Imports
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
@@ -61,8 +62,11 @@ public class ChatClient implements ClientInterface {
 
     private ExecutorService executorService;
 
+    private boolean isLoggedIn;
+
     private String host;
     private int connectedPort;
+    private String username;
 
     //TODO: GET RID OF AFTER DONE
     public Random rand = new Random();
@@ -72,6 +76,8 @@ public class ChatClient implements ClientInterface {
      */
     public ChatClient() {
         this.serverPorts = new ArrayList<Integer>();
+        this.isLoggedIn = false;
+        this.username = null;
         this.executorService = Executors.newFixedThreadPool(10);
     };
 
@@ -117,6 +123,9 @@ public class ChatClient implements ClientInterface {
                 if (chatStub.sendIsLeader()) {
                     this.remoteReg = currReg;
                     this.connectedPort = port;
+                    if (isLoggedIn && username != null) {
+                        bindUserToRegistry(this.username);
+                    }
                     setChatStub();
                     break;
                 }
@@ -169,11 +178,74 @@ public class ChatClient implements ClientInterface {
     public int getConnectedPort() {
         return this.connectedPort;
     }
+
+    public void setIsLoggedIn(boolean loggedIn) {
+        this.isLoggedIn = loggedIn;
+    }
+
+    public boolean getIsLoggedIn() {
+        return this.isLoggedIn;
+    }
+
+    public void setUserName(String user) {
+        this.username = user;
+    }
+
+    public String getUsername() {
+        return this.username;
+    }
     // ======================================
 
     //         Register/Login the user
 
     // ======================================
+
+    /**
+     * When registering or logging in, bind the user to the registry
+     * so that the server can access it's remote methods
+     * @param user
+     */
+    public boolean bindUserToRegistry(String user) {
+        // Attempt to unexport and unbind from the registry before binding again
+        if (unBindUserToRegistry(user)) {
+            LOGGER.info(String.format("Unbound user %s from the registry.", user));
+        } else {
+            LOGGER.severe(String.format("Did not need to unbind %s from the registry.", user));
+        }
+
+        try {
+            ClientInterface clientStub = (ClientInterface)UnicastRemoteObject.exportObject(this, 0);
+            remoteReg.bind(String.format("client:%s", user), clientStub);
+            LOGGER.info(String.format("Successfully bound user: %s to registry", user));
+            return true;
+        } catch (RemoteException re) {
+            LOGGER.severe(re.toString());
+            LOGGER.severe(String.format("Error binding user %s to the registry.", user));
+        } catch (AlreadyBoundException abe) {
+            LOGGER.severe("Client already bound!");
+        }
+        return false;
+    }
+
+    /**
+     * Unexport the client and unbind the user from the registry
+     * @param user
+     */
+    public boolean unBindUserToRegistry(String user) {
+        try {
+            UnicastRemoteObject.unexportObject(this, true);
+            remoteReg.unbind(String.format("client:%s", user));
+            LOGGER.info(String.format("Successfully unbound the client: %s", user));
+            return true;
+        } catch (NotBoundException nbe) {
+            LOGGER.severe("Client not bound already.");
+        } catch (NoSuchObjectException nso) {
+            LOGGER.severe("This client was not exported. Nothing to unexport.");
+        } catch (RemoteException re) {
+            LOGGER.severe("Remote error unbinding client from the registry.");
+        }
+        return false;
+    }
 
     /**
      * Register the user with the specified user and password.
@@ -187,9 +259,12 @@ public class ChatClient implements ClientInterface {
         Response serverResp = this.chatStub.registerUser(user, pw);
 
         if (serverResp.getServerReply().equals("success")) {
-            ClientInterface clientStub = (ClientInterface)UnicastRemoteObject.exportObject(this, 0);
-            remoteReg.rebind(String.format("client:%s", user), clientStub);
-            LOGGER.info("Successfully registered.");
+            if(bindUserToRegistry(user)) {
+                LOGGER.info("Successfully registered.");
+            } else {
+                LOGGER.severe("Failed registering user");
+            }
+            
         }
         
         return serverResp;
@@ -206,8 +281,11 @@ public class ChatClient implements ClientInterface {
         Response serverResp = this.chatStub.loginUser(user, pw);
 
         if (serverResp.getServerReply().equals("success")) {
-            ClientInterface clientStub = (ClientInterface)UnicastRemoteObject.exportObject(this, 0);
-            remoteReg.rebind(String.format("client:%s", user), clientStub);
+            if (bindUserToRegistry(user)) {
+                LOGGER.info("Successfully logged in.");
+            } else {
+                LOGGER.severe("Failed logging in user.");
+            } 
         }
 
         return serverResp;
@@ -221,16 +299,9 @@ public class ChatClient implements ClientInterface {
     public String logOutApp(String user) throws RemoteException{
         String serverResp = this.chatStub.logOutUser(user);
         if (serverResp.equals("success")) {
-
-            try {
-                UnicastRemoteObject.unexportObject(this, true);
-                remoteReg.unbind(String.format("client:%s", user));
-                LOGGER.info(String.format("Successfully unbound the client: %s", user));
-            } catch (NotBoundException nbe) {
-                LOGGER.severe("Client not bound already.");
+            if (unBindUserToRegistry(user)) {
+                return "success";
             }
-
-            return "success";
         }
         return "fail";
     }
@@ -350,8 +421,13 @@ public class ChatClient implements ClientInterface {
 
     // ======================================
 
+    /**
+     * Attempt to get the connected server's heartbeat.
+     * Reconnect to new leader if the currently connected one is down
+     */
     public void getServerHeartBeat() {
         while(true) {
+            LOGGER.info("Checking server's heartbeat.");
             try {
                 if (this.chatStub == null) {
                     setRemoteReg(host);
@@ -360,12 +436,16 @@ public class ChatClient implements ClientInterface {
 
                 // Check if it is alive
                 if (this.chatStub.sendHeartBeat()) {
-                    LOGGER.info(
-                        String.format(
-                            "Server on port: %d is still alive!", 
-                            this.connectedPort));
+                    // LOGGER.info(
+                    //     String.format(
+                    //         "Server on port: %d is still alive!", 
+                    //         this.connectedPort));
                     // Check to see if it is the leader
                     if (!this.chatStub.sendIsLeader()) {
+                        LOGGER.info(
+                        String.format(
+                            "Server on port: %d is not the leader. Finding leader.", 
+                            this.connectedPort));
                         setRemoteReg(host);
                     }
                 }
@@ -378,8 +458,8 @@ public class ChatClient implements ClientInterface {
             }
 
             try {
-                LOGGER.info("Sleeping server heartbeat sensor for 3 seconds");
-                Thread.sleep(3000);
+                //LOGGER.info("Sleeping server heartbeat sensor for 3 seconds");
+                Thread.sleep(1000);
             } catch (InterruptedException ie) {
                 LOGGER.severe("Interrupted sleeping heartbeat sensor");
             }

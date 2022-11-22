@@ -6,7 +6,7 @@ import java.io.IOException;
 import java.rmi.RemoteException;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
-
+import java.util.stream.Collectors;
 // Java GUI Imports
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -45,7 +45,6 @@ public class ClientGUI {
 
   // Chat client GUI Variables
   public ChatClient client;
-  public String myUsername;
   public String currChatRoom;
 
   // GUI Components
@@ -112,22 +111,33 @@ public class ClientGUI {
     if (registerUsername.getText().length() == 0 || registerPassword.getText().length() == 0) {
       openPopUp("Enter a username and password!");
     } else {
+      final String currUserName = registerUsername.getText();
+      final String currPassword = registerPassword.getText();
       Response res = null;
 
       try {
-        res = client.loginUser(registerUsername.getText(), registerPassword.getText());
-        // change GUI to open chat selection screen
-        if (res.getServerReply().equalsIgnoreCase("success")) {
-          myUsername = registerUsername.getText();
-          LOGGER.severe("SUCCESS: Successfully logged in.");
+        res = client.loginUser(currUserName, currPassword);
+
+        if (res == null) {
+          openPopUp("Something went wrong logging in. Try again.");
+          LOGGER.severe("Logging in user response is null.");
+
+        } else if (res.getServerReply().equalsIgnoreCase("success")) {
+          client.setUserName(currUserName);
+          this.client.setIsLoggedIn(true);
+          LOGGER.info("SUCCESS: Successfully logged in.");
+          // Close the login frame
           regLogFrame.dispose();
           openChatSelectionScreen();
+
         } else if (res.getServerReply().equalsIgnoreCase("incorrect")) {
           openPopUp("Incorrect username/password!");
           LOGGER.severe("FAIL: Incorrect username/password.");
+
         } else if (res.getServerReply().equals("loggedIn")) {
           openPopUp("This user already logged in!");
           LOGGER.severe("FAIL: Already logged in.");
+
         } else {
           openPopUp("Failed logging in. Try again!");
           LOGGER.severe("FAIL: Unknown error.");
@@ -147,15 +157,19 @@ public class ClientGUI {
     if (registerUsername.getText().length() == 0 || registerPassword.getText().length() == 0) {
       openPopUp("Enter a username and password!");
     } else {
+      final String currUserName = registerUsername.getText();
+      final String currPassword = registerPassword.getText();
       Response res = null;
       try {
-        res = client.registerUser(registerUsername.getText(), registerPassword.getText());
+        res = client.registerUser(currUserName, currPassword);
         
         if (res == null) {
           openPopUp("Something went wrong registering. Try again.");
           LOGGER.severe("Register user response is null.");
+
         } else if  (res.getServerReply().equalsIgnoreCase("success")) {
-          myUsername = registerUsername.getText();
+          client.setUserName(currUserName);
+          this.client.setIsLoggedIn(true);
           LOGGER.info("User successfully logged in!");
           regLogFrame.dispose();
           openChatSelectionScreen();
@@ -176,14 +190,19 @@ public class ClientGUI {
   public void logOutApplication() {
     String response = null;
     try {
-      response = client.logOutApp(myUsername);
+      response = client.logOutApp(client.getUsername());
     } catch (RemoteException re) {
       LOGGER.severe(
         "Server error logging out of application. Could not connect to the remote.");
     }
-    
-    if (response.equalsIgnoreCase("success")) {
-      myUsername = null;
+
+    if (response == null) {
+      openPopUp("Something went wrong logging out. Try again.");
+      LOGGER.severe("Log out user response is null.");
+
+    } else if (response.equalsIgnoreCase("success")) {
+      client.setUserName(null);
+      this.client.setIsLoggedIn(false);
       LOGGER.info(
         "Successfully logged out of application.");
       openStartScreen();
@@ -231,13 +250,16 @@ public class ClientGUI {
   public void updateRoomMemberList() {
     roomMembersTextArea.setText("");
     try {
-      Map<String, List<String>> roomAndNumUsers = client.getChatRoomInformation();
+      final Map<String, List<String>> roomAndNumUsers = client.getChatRoomInformation();
       if (roomAndNumUsers == null) {
         LOGGER.severe("Room name not active.");
         roomMembersTextArea.append(String.format("Room name: %s is not active!\n", currChatRoom));
       } else {
         List<String> roomUsers = roomAndNumUsers.get(currChatRoom);
-        for (String user: roomUsers) {
+        List<String> listWithoutDuplicates = roomUsers.stream()
+            .distinct().collect(Collectors.toList());
+        
+        for (String user: listWithoutDuplicates) {
           roomMembersTextArea.append(String.format("%s\n", user));
         }
       }
@@ -325,7 +347,7 @@ public class ClientGUI {
       openPopUp("Message cannot be empty!");
     } else {
       try {
-        client.sendMessage(Instant.now(), myUsername, currChatRoom, newMessage);
+        client.sendMessage(Instant.now(), client.getUsername(), currChatRoom, newMessage);
       } catch (RemoteException re) {
         LOGGER.severe("Error sending message!");
         openPopUp("Error sending message!");
@@ -351,7 +373,7 @@ public class ClientGUI {
       String response = null;
       // Attempt to join the chatroom
       try {
-        response = client.joinChatRoom(chatroomName, myUsername);
+        response = client.joinChatRoom(chatroomName, client.getUsername());
       } catch (RemoteException re) {
         LOGGER.severe(
           String.format("Error joining chatroom: %s", chatroomName));
@@ -365,22 +387,22 @@ public class ClientGUI {
         Instant currTime = Instant.now();
         LOGGER.info(
           String.format(
-            "User: %s successfully joined chat: %s", myUsername, currChatRoom));
-        openChatroomScreen();
+            "User: %s successfully joined chat: %s", client.getUsername(), currChatRoom));
         // Broadcast that the client joined the chat room
         try {
           client.sendMessage(currTime, "SYSTEM", currChatRoom,
-            String.format("%s has joined the chat.", myUsername));
+            String.format("%s has joined the chat.", client.getUsername()));
 
             // Notify all members of the room
-            client.notifyOthersJoinLeave(currChatRoom, myUsername);
+            client.notifyOthersJoinLeave(currChatRoom, client.getUsername());
         } catch (RemoteException re) {
           LOGGER.severe(
             String.format(
               "Error alerting others I (%s) joined the chatroom: %s.", 
-              myUsername, 
+              client.getUsername(), 
               currChatRoom));
         }
+        openChatroomScreen();
       } else {
         openPopUp("Chatroom name does not exist!");
         LOGGER.severe("Error joining chatroom. Chatroom does not exist.");
@@ -401,7 +423,7 @@ public class ClientGUI {
       String res = null;
       // Attempt to create the chat room
       try {
-        res = client.createChatRoom(chatroomName, myUsername);
+        res = client.createChatRoom(chatroomName, client.getUsername());
       } catch (RemoteException re) {
         LOGGER.severe("Error creating a chatroom! Server might be down!");
         return;
@@ -411,18 +433,18 @@ public class ClientGUI {
       if (res.equalsIgnoreCase("success")) {
         Instant currTime = Instant.now();
         currChatRoom = chatroomName;
-        LOGGER.info(String.format("User: %s successfully created chat: %s", myUsername, currChatRoom));
+        LOGGER.info(String.format("User: %s successfully created chat: %s", client.getUsername(), currChatRoom));
         openChatroomScreen();
 
         // Broadcast that the client created the chat room
         try {
           client.sendMessage(currTime, "SYSTEM", currChatRoom,
-            String.format("%s has created the chat.", myUsername));
+            String.format("%s has created the chat.", client.getUsername()));
         } catch (RemoteException re) {
           LOGGER.severe(
             String.format(
               "Error alerting others I (%s) created the chatroom: %s.", 
-              myUsername,
+              client.getUsername(),
               currChatRoom));
         }
       } else if (res.equalsIgnoreCase("exists")) {
@@ -441,7 +463,7 @@ public class ClientGUI {
     String response = "";
 
     try {
-      response = client.leaveCurrChat(currChatRoom, myUsername);
+      response = client.leaveCurrChat(currChatRoom, client.getUsername());
     } catch (RemoteException re) {
       LOGGER.severe(
         String.format(
@@ -451,19 +473,19 @@ public class ClientGUI {
     
     if (response.equalsIgnoreCase("success")) {
       Instant currTime = Instant.now();
-      LOGGER.info(String.format("User: %s successfully left chat: %s", myUsername, currChatRoom));
+      LOGGER.info(String.format("User: %s successfully left chat: %s", client.getUsername(), currChatRoom));
       openChatSelectionScreen();
       // Broadcast that the client joined the chat room
       try {
         client.sendMessage(currTime, "SYSTEM", currChatRoom,
-          String.format("%s has left the chat.", myUsername));
-          client.notifyOthersJoinLeave(currChatRoom, myUsername);
+          String.format("%s has left the chat.", client.getUsername()));
+          client.notifyOthersJoinLeave(currChatRoom, client.getUsername());
           currChatRoom = null;
       } catch (RemoteException re) {
         LOGGER.severe(
           String.format(
             "Error alerting others I (%s) joined the chatroom: %s.", 
-            myUsername, 
+            client.getUsername(), 
             currChatRoom));
       }
     } else {
@@ -491,7 +513,7 @@ public class ClientGUI {
     this.chatroomLabel = new JLabel(
                               String.format("Chat: %s", 
                               this.currChatRoom, 
-                              this.myUsername), SwingConstants.CENTER);
+                              this.client.getUsername()), SwingConstants.CENTER);
     this.chatroomLabel.setFont(new Font("Calibri", Font.BOLD, 30));
     gbc.gridwidth = 3;
     gbc.anchor = GridBagConstraints.NORTHWEST;
@@ -520,7 +542,7 @@ public class ClientGUI {
     try {
       List<String> messageHistory = client.getChatRoomHistory(currChatRoom);
       if (messageHistory != null) {
-        for (String mess: messageHistory) {
+        for (String mess : messageHistory) {
           this.chatroomTextArea.append(mess + "\n");
         }
       }
@@ -622,7 +644,7 @@ public class ClientGUI {
     panel.setLayout(new GridBagLayout());
     GridBagConstraints gbc = new GridBagConstraints();
 
-    JLabel userLabel = new JLabel(String.format("Welcome: %s", myUsername), SwingConstants.CENTER);
+    JLabel userLabel = new JLabel(String.format("Welcome: %s", client.getUsername()), SwingConstants.CENTER);
     userLabel.setFont(new Font("Calibri", Font.BOLD, 30));
     gbc.gridwidth = 2;
     gbc.anchor = GridBagConstraints.NORTHWEST;
@@ -747,7 +769,7 @@ public class ClientGUI {
     gbc.ipady = 0;
     addComponentToPanel(createChatButton, gbc);
 
-    frame.setTitle(String.format("Join/Create Chatroom: %s", myUsername));
+    frame.setTitle(String.format("Join/Create Chatroom: %s", client.getUsername()));
     frame.getContentPane().validate();
     frame.getContentPane().repaint();
   }

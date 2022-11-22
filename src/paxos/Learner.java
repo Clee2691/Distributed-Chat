@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 // Java Imports
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 // Custom Imports
@@ -49,7 +50,7 @@ public class Learner extends Thread {
     public synchronized String commit(int propId, Map<String,String> userStore, 
                                         Map<String, List<String>> chatRoomUsers,
                                         Map<String, List<String>> chatRoomHistory,
-                                        List<String> activeUsers,
+                                        Set<String> activeUsers,
                                         DBOperation dbOp) {
         acceptedVals.put(propId, dbOp);
 
@@ -82,8 +83,9 @@ public class Learner extends Thread {
             chatRoomHistory.put(dbOp.getChatroom(), chatHistory);
             return "success";
         } else if (dbOp.getOp().equals("join")) {
-                    // Add user to the room if it contains the key (Room exists)
-            if (chatRoomUsers.containsKey(dbOp.getChatroom())) {
+            // Add user to the room if it contains the key (Room exists)
+
+            if (chatRoomHistory.containsKey(dbOp.getChatroom())) {
                 chatRoomUsers.get(dbOp.getChatroom()).add(dbOp.getUsername());
                 return "success";
             }

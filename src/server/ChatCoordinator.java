@@ -1,7 +1,11 @@
 package server;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 // Logging imports
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
@@ -21,7 +25,7 @@ import java.rmi.AccessException;
 import java.rmi.NoSuchObjectException;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
-
+import java.util.concurrent.ConcurrentHashMap;
 // Threading support
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,16 +52,15 @@ public class ChatCoordinator {
 
     private static List<Integer> serverPorts = new ArrayList<Integer>();
     private static List<ChatServerImpl> chatServers = new ArrayList<ChatServerImpl>();
+    // Keep track of master state here
     private static int largestPropId = 0;
     private static int currLeader = 0;
-
-    // TODO: Possibly keep track of connected clients on the leader server
-    // TODO: transfer over connected clients to new leader when new leader elected
-
+    private static Set<String> connectedUsers = new HashSet<String>();
+    private static Map<String, String> leaderUserDB = new ConcurrentHashMap<String, String>();
+    private static Map<String, List<String>> leaderChatRoomUsers = new ConcurrentHashMap<String, List<String>>();
+    private static Map<String, List<String>> leaderChatRoomHistory = new ConcurrentHashMap<String, List<String>>();
     // Threading support
     private static ExecutorService executorService = Executors.newFixedThreadPool(10);
-
-
 
     /**
      * Keep track of connected clients to the leader.
@@ -66,7 +69,7 @@ public class ChatCoordinator {
     private static void getLeaderConnClientsheartBeats() {
         while (true) {
             ChatServerImpl leaderServer = chatServers.get(currLeader);
-            List<String> connClients = leaderServer.getLoggedInUsers();
+            Set<String> connClients = leaderServer.getLoggedInUsers();
             boolean isAlive = false;
             if (connClients.size() > 0){
                 LOGGER.info("Checking for client heartbeats");
@@ -81,9 +84,11 @@ public class ChatCoordinator {
                     } catch (RemoteException re) {
                         LOGGER.severe(String.format("Remote Client: %s is dead!", client));
                         leaderServer.cleanUpClients(client);
+                        connectedUsers.remove(client);
                     } catch (NotBoundException nbe) {
                         LOGGER.severe(String.format("Client name: %s is not bound!", client));
                         leaderServer.cleanUpClients(client);
+                        connectedUsers.remove(client);
                     }
                 }
             } else {
@@ -91,12 +96,33 @@ public class ChatCoordinator {
             }
             
             try {
-                LOGGER.info("Sleeping client heartbeat sensor.");
-                Thread.sleep(2000);
+                //LOGGER.info("Sleeping client heartbeat sensor.");
+                Thread.sleep(5000);
             } catch (InterruptedException ie) {
                 LOGGER.severe("Interrupted sleeping client heartbeat sensor");
             }
         } 
+    }
+
+    private synchronized static void mergeMaps(Map<String, List<String>> clientMap, String dataType) {
+        Map<String, List<String>> theMap;
+        if(dataType.equals("history")) {
+            theMap = leaderChatRoomHistory;
+        } else {
+            theMap = leaderChatRoomUsers;
+        }
+        clientMap.forEach(
+            (key, value) -> theMap.merge(key, value, (v1, v2) -> 
+            {
+                //Add items from Lists into Set
+                Set<String> set = new LinkedHashSet<>(v1);
+                // Add all items from second value
+                set.addAll(v2);
+                //Convert Set to ArrayList
+                return new ArrayList<>(set);
+                
+            })
+        );
     }
 
     /**
@@ -105,18 +131,24 @@ public class ChatCoordinator {
      */
     private static void getServerHeartBeats() {
         while (true) {
+            LOGGER.info("Checking server heartbeats...");
             boolean isAlive = false;
             for (int i = 0; i < chatServers.size(); i++) {
                 ChatServerImpl currServer = chatServers.get(i);
                 if (i == currLeader) {
-                    // Keep track of highest proposed val so far in case
+                    // Keep track of leader's information
                     // new leader is elected
                     largestPropId = currServer.getProposer().getPropId();
+                    connectedUsers.addAll(currServer.getLoggedInUsers());
+                    mergeMaps(currServer.getChatRoomHistory(), "history");
+                    mergeMaps(currServer.getChatRoomUsers(), "users");
+
                 // Reset leadership if the server was elected leader before but is now not the leader.
                 } else {
                     if (currServer.getIsLeader()) {
                         currServer.setIsLeader(false);
                     }
+                    
                 }
 
                 int serverPort = currServer.getPort();
@@ -125,7 +157,7 @@ public class ChatCoordinator {
                     ChatServerInterface chatStub = (ChatServerInterface) registry.lookup("chat");
                     isAlive = chatStub.sendHeartBeat();
                     if (isAlive) {
-                        LOGGER.info(String.format("Server on port: %d is still alive!", serverPort));
+                        //LOGGER.info(String.format("Server on port: %d is still alive!", serverPort));
                         // If the current leader's ID is greater than the checked server's ID
                         // Relect the leader since the server is back up
                         if (currLeader > i) {
@@ -144,8 +176,8 @@ public class ChatCoordinator {
             }
     
             try {
-                LOGGER.info("Sleeping server heartbeat sensor.");
-                Thread.sleep(5000);
+                //LOGGER.info("Sleeping server heartbeat sensor.");
+                Thread.sleep(1000);
             } catch (InterruptedException ie) {
                 LOGGER.severe("Interrupted sleeping server heartbeat sensor");
             }
@@ -226,9 +258,13 @@ public class ChatCoordinator {
                     
                     // If a lower PID is found, that is the new leader
                     currLeader = leader;
-                    chatServers.get(leader).setIsLeader(true);
+                    ChatServerImpl newLeader = chatServers.get(leader);
+                    newLeader.setIsLeader(true);
                     // Set the proposal ID to be the last leader's proposal ID
-                    chatServers.get(nextServer).getProposer().setPropId(largestPropId);
+                    newLeader.getProposer().setPropId(largestPropId + 1);
+                    newLeader.setLoggedInUsers(connectedUsers);
+                    newLeader.setChatRoomHistory(leaderChatRoomHistory);
+                    newLeader.setChatRoomUsers(leaderChatRoomUsers);
                     LOGGER.info(
                         String.format(
                             "New leader found! Server on port %d is now leader.", 
@@ -367,41 +403,79 @@ public class ChatCoordinator {
             }
 
             try {
-                LOGGER.info("Stopping server 1...");
+                LOGGER.info("Stopping server 1:5555...");
                 UnicastRemoteObject.unexportObject(chatServers.get(0), true);
             } catch (NoSuchObjectException noObj) {
                 LOGGER.severe("ERROR stopping server 1.");
             }
 
             try {
-                LOGGER.info("Stopping server 2...");
+                LOGGER.info("Stopping server 2:5556...");
                 UnicastRemoteObject.unexportObject(chatServers.get(1), true);
             } catch (NoSuchObjectException noObj) {
                 LOGGER.severe("ERROR stopping server 2.");
             }
 
             try {
-                LOGGER.info("Sleeping thread to start server 2 for 10 seconds");
-                Thread.sleep(10000);
+                LOGGER.info("Restarting server 2:5556 in 15 seconds.");
+                Thread.sleep(15000);
             } catch (InterruptedException ie) {
                 LOGGER.severe("Interrupted sleep before start server 2.");
             }
 
             try {
-                LOGGER.info("Restarting server 2...");
+                LOGGER.info("Restarting server 2:5556...");
                 // Stub the remote object
+                chatServers.set(1, new ChatServerImpl(5556));
                 ChatServerInterface chatStub1 = (ChatServerInterface) UnicastRemoteObject.
                                             exportObject(chatServers.get(1),
                                                          5556);
+                
                 // Creates and exports a Registry instance on the local host that accepts requests on the specified port.
                 Registry registry1 = LocateRegistry.getRegistry(5556);
                 registry1.rebind("chat", chatStub1);
+                chatServers.get(1).setRegistry(registry1);
+                ChatServerInterface newStub =  (ChatServerInterface) registry1.lookup("chat");
+                newStub.setServers(serverPorts, 5555);
 
+            } catch (NoSuchObjectException noObj) {
+                LOGGER.severe("ERROR no such object starting server 2.");
+            } catch (RemoteException re) {
+                LOGGER.severe(re.toString());
+                LOGGER.severe("ERROR remoteexception starting server 2.");
+            } catch (NotBoundException nbe) {
+                LOGGER.severe("not bound");
+            }
+
+            try {
+                LOGGER.info("Restarting server port 5555 in 1 minute.");
+                Thread.sleep(60000);
+            } catch (InterruptedException ie) {
+                LOGGER.severe("Interrupted sleep before start server 2.");
+            }
+
+            try {
+                LOGGER.info("Restarting server port 5555...");
+                chatServers.set(0, new ChatServerImpl(5555));
+                // Stub the remote object
+                ChatServerInterface chatStub1 = (ChatServerInterface) UnicastRemoteObject.
+                                            exportObject(chatServers.get(0),
+                                                         5555);
+                // Creates and exports a Registry instance on the local host that accepts requests on the specified port.
+                Registry registry2 = LocateRegistry.getRegistry(5555);
+                
+                registry2.rebind("chat", chatStub1);
+                chatServers.get(0).setRegistry(registry2);
+                ChatServerInterface newStub =  (ChatServerInterface) registry2.lookup("chat");
+                newStub.setServers(serverPorts, 5555);
+                
             } catch (NoSuchObjectException noObj) {
                 LOGGER.severe("ERROR no such object starting server 1.");
             } catch (RemoteException re) {
                 LOGGER.severe(re.toString());
                 LOGGER.severe("ERROR remoteexception starting server 1.");
+            } catch (NotBoundException nbe) {
+                LOGGER.severe("NOT BOUND");
             }
 
         });

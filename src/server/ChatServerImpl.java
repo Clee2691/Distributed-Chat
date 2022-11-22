@@ -4,6 +4,7 @@ package server;
 import java.util.logging.Level;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 import java.io.FileInputStream;
 import java.io.IOException;
 
@@ -19,9 +20,10 @@ import java.time.format.DateTimeFormatter;
 
 // Java Imports
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-
+import java.util.Set;
 // Threading support
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -70,7 +72,7 @@ public class ChatServerImpl implements ChatServerInterface {
     // User database
     // Should be a map of username : user stat object like their PW or if they are active
     private Map<String, String> userDatabase;
-    private List<String> loggedInUsers;
+    private Set<String> loggedInUsers;
     // The rooms and associated users
     // Name of room : List of users in the room
     private Map<String, List<String>> chatRoomUsers;
@@ -88,7 +90,7 @@ public class ChatServerImpl implements ChatServerInterface {
         this.userDatabase = new ConcurrentHashMap<String, String>();
         this.chatRoomUsers = new ConcurrentHashMap<String, List<String>>();
         this.chatRoomHistory = new ConcurrentHashMap<String, List<String>>();
-        this.loggedInUsers = new ArrayList<String>();
+        this.loggedInUsers = new HashSet<String>();
 
         // Paxos proposer,acceptor,learner
         // Every server is it's own proposer, acceptor, and learner
@@ -130,8 +132,12 @@ public class ChatServerImpl implements ChatServerInterface {
         return this.isLeader;
     }
 
-    public List<String> getLoggedInUsers() {
+    public Set<String> getLoggedInUsers() {
         return this.loggedInUsers;
+    }
+
+    public void setLoggedInUsers(Set<String> activeUsers) {
+        this.loggedInUsers.addAll(activeUsers);
     }
 
     public Proposer getProposer() {
@@ -148,6 +154,22 @@ public class ChatServerImpl implements ChatServerInterface {
 
     public void setPid(int id) {
         this.pId = id;
+    }
+
+    public Map<String, List<String>> getChatRoomHistory() {
+        return this.chatRoomHistory;
+    }
+
+    public void setChatRoomHistory(Map<String, List<String>> history) {
+        this.chatRoomHistory = history;
+    }
+
+    public Map<String, List<String>> getChatRoomUsers() {
+        return this.chatRoomUsers;
+    }
+
+    public void setChatRoomUsers(Map<String, List<String>> users) {
+        this.chatRoomUsers = users;
     }
 
     // =========================
@@ -374,8 +396,11 @@ public class ChatServerImpl implements ChatServerInterface {
             }
         } catch (InterruptedException ie) {
             LOGGER.severe("Error sending message to chatroom.");
+            return;
         } catch (ExecutionException ee) {
+            LOGGER.severe(ee.toString());
             LOGGER.severe("Error sending message chatroom.");
+            return;
         } 
 
         // Iterate through all clients currently connected to room on the server.
@@ -390,6 +415,8 @@ public class ChatServerImpl implements ChatServerInterface {
                 LOGGER.severe(String.format("User: %s is no longer connected. Not bound to registry.", name));
             } catch (RemoteException re) {
                 LOGGER.severe(String.format("Error accessing the remote: %s.", name));
+            } catch (NullPointerException npe) {
+                LOGGER.severe("NAME IS NULL! Could not broadcast!");
             }
         }
     }
@@ -400,6 +427,9 @@ public class ChatServerImpl implements ChatServerInterface {
         List<String> currRoomUsers = this.chatRoomUsers.get(chatroom);
         for (String name : currRoomUsers) {
             try {
+                if (name.equals(user)){
+                    continue;
+                }
                 // Look up the client in the registry and call its displayMessage remote method
                 ClientInterface client = (ClientInterface)remoteReg.lookup(String.format("client:%s", name));
                 client.notifyJoinLeave();
@@ -414,12 +444,10 @@ public class ChatServerImpl implements ChatServerInterface {
 
     @Override
     public Map<String, List<String>> getChatRoomInformation() {
-
         if (this.chatRoomUsers.isEmpty()) {
             return null;
         }
-
-        return this.chatRoomUsers;
+        return getChatRoomUsers();
     }
 
     @Override
@@ -432,8 +460,14 @@ public class ChatServerImpl implements ChatServerInterface {
 
     @Override
     public List<String> getChatRoomMessageHistory(String chatName) {
-        if (this.chatRoomHistory.containsKey(chatName)) {
-            return this.chatRoomHistory.get(chatName);
+
+        synchronized(this.chatRoomHistory) {
+            if (this.chatRoomHistory.containsKey(chatName)) {
+                List<String> finalMessages = this.chatRoomHistory.get(chatName);
+                List<String> listWithoutDuplicates = finalMessages.stream()
+                    .distinct().collect(Collectors.toList());
+                return listWithoutDuplicates;
+            }
         }
         return null;
     }
